@@ -9,6 +9,29 @@ from config import config, logger
 from core import GitHubManager, AIArchitect, AICoder, AIReviewer
 
 # -----------------------------------------------------------------------------
+# Helper Function for Safe Core Agent Initialization
+# -----------------------------------------------------------------------------
+def init_agent(agent_cls, api_key, model_name):
+    """
+    سیکیور انیشلائزیشن فنکشن تاکہ اگر core.py میں parameter کا نام model_name ہو، 
+    model ہو، یا کوئی نہ ہو، کوڈ بنا کسی ایرر کے چلے۔
+    """
+    try:
+        # 1. پہلے model_name کے ساتھ ٹرائی کرتے ہیں
+        return agent_cls(api_key=api_key, model_name=model_name)
+    except TypeError:
+        try:
+            # 2. اگر model_name نہ چلے تو model کی ورڈ سے ٹرائی کرتے ہیں
+            return agent_cls(api_key=api_key, model=model_name)
+        except TypeError:
+            try:
+                # 3. اگر صرف api_key ایکسیپٹ ہوتی ہو
+                return agent_cls(api_key=api_key)
+            except TypeError:
+                # 4. اگر بنا کسی arguments کے انیشلائز ہوتا ہو
+                return agent_cls()
+
+# -----------------------------------------------------------------------------
 # 1. Page Configuration & Layout
 # -----------------------------------------------------------------------------
 st.set_page_config(
@@ -74,7 +97,6 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("⚙️ System Configuration")
     
-    # FIX 1: Updated deprecated 1.5 models to active 2.5 models
     architect_model_name = st.selectbox(
         "Architect Model",
         ["gemini-2.5-pro", "gemini-2.5-flash"],
@@ -99,7 +121,7 @@ col1, col2 = st.columns([2, 1])
 with col1:
     project_name = st.text_input(
         "📦 Repository Name",
-        placeholder="e.g., nexusvault-global-enterprise",
+        placeholder="e.g., nexusvault-platform",
         help="صرف حروف، نمبرز اور ڈیش (-) استعمال کریں"
     )
 
@@ -139,18 +161,18 @@ if generate_btn:
 
     try:
         # Step 1: Initialize Core Agents
-        status_text.status("🤖 DevPulse Core Agents انیشلائز کیے جا رہے ہیں...")
+        status_text.text("🤖 DevPulse Core Agents انیشلائز کیے جا رہے ہیں...")
         github_mgr = GitHubManager(access_token=user_github_token)
         
-        # FIX 2: Explicitly passing the model_name selected from the sidebar
-        architect = AIArchitect(api_key=user_gemini_key, model_name=architect_model_name)
-        coder = AICoder(api_key=user_gemini_key, model_name=architect_model_name)
-        reviewer = AIReviewer(api_key=user_gemini_key, model_name=architect_model_name)
+        # Dynamic Multi-Fallback Agent Initialization (Fixes Keyword Argument Errors)
+        architect = init_agent(AIArchitect, user_gemini_key, architect_model_name)
+        coder = init_agent(AICoder, user_gemini_key, architect_model_name)
+        reviewer = init_agent(AIReviewer, user_gemini_key, architect_model_name)
         
         progress_bar.progress(10)
 
         # Step 2: GitHub Repository Creation
-        status_text.status(f"🐙 GitHub Repository '{project_name}' تیار کی جا رہی ہے...")
+        status_text.text(f"🐙 GitHub Repository '{project_name}' تیار کی جا رہی ہے...")
         repo = github_mgr.create_repository(
             repo_name=project_name,
             description=f"DevPulse Studio AI: {project_requirements[:100]}...",
@@ -160,7 +182,7 @@ if generate_btn:
         st.success(f"✅ GitHub Repo تیار ہو گئی: [{repo.html_url}]({repo.html_url})")
 
         # Step 3: Architecture Blueprint Planning
-        status_text.status("🧠 AI Architect پروجیکٹ کا فائل اسٹرکچر اور ڈیزائن پلان کر رہا ہے...")
+        status_text.text("🧠 AI Architect پروجیکٹ کا فائل اسٹرکچر اور ڈیزائن پلان کر رہا ہے...")
         full_requirements = f"Tech Ecosystem Preference: {target_framework}\nRequirements: {project_requirements}"
         plan = architect.plan_project(project_name=project_name, requirements=full_requirements)
         progress_bar.progress(40)
@@ -172,7 +194,7 @@ if generate_btn:
         st.markdown(f"**کل جنریٹ ہونے والی فائلز:** `{len(files)}`")
 
         # Step 4: Zero-Placeholder Deep Code Generation & Push Loop
-        status_text.status("💻 Deep Coding Agent تمام فائلز کا 100% مکمل کوڈ بنا کر GitHub پر Push کر رہا ہے...")
+        status_text.text("💻 Deep Coding Agent تمام فائلز کا 100% مکمل کوڈ بنا کر GitHub پر Push کر رہا ہے...")
         
         total_files = len(files)
         files_list_names = [f.get("path") for f in files]
@@ -183,7 +205,7 @@ if generate_btn:
             file_path = file_info.get("path")
             file_purpose = file_info.get("purpose")
             
-            status_text.status(f"🛠️ [فائل {idx+1}/{total_files}] کوڈ کی جا رہی ہے: `{file_path}`")
+            status_text.text(f"🛠️ [فائل {idx+1}/{total_files}] کوڈ کی جا رہی ہے: `{file_path}`")
             
             # Code Generation
             code_content = coder.generate_file_code(
@@ -212,7 +234,7 @@ if generate_btn:
         progress_bar.progress(90)
 
         # Step 5: Executive Code Audit & Review
-        status_text.status("🛡️ AI Reviewer پروجیکٹ کا سیکیورٹی اور آرکیٹیکچر آڈٹ کر رہا ہے...")
+        status_text.text("🛡️ AI Reviewer پروجیکٹ کا سیکیورٹی اور آرکیٹیکچر آڈٹ کر رہا ہے...")
         audit_report = reviewer.audit_project(
             project_name=project_name,
             requirements=project_requirements,
@@ -220,7 +242,7 @@ if generate_btn:
             repo_url=repo.html_url
         )
         progress_bar.progress(100)
-        status_text.status("🎉 تمام مرحلے کامیابی سے مکمل ہو گئے!")
+        status_text.text("🎉 تمام مرحلے کامیابی سے مکمل ہو گئے!")
 
         # -----------------------------------------------------------------------------
         # 6. Final Results & Audit Display
