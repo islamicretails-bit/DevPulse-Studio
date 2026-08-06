@@ -1,55 +1,96 @@
 """
 DevPulse Studio - Enterprise AI Autonomous Software Architect Engine
-Main Streamlit Application Dashboard Interface
+Main Streamlit Application Dashboard Interface (Powered by Groq & Llama 3.3)
 """
 
 import streamlit as st
 import time
-import google.generativeai as genai
+import json
+from groq import Groq
 from config import config, logger
 
+# GitHub Manager Import
+from core import GitHubManager
+
 # -----------------------------------------------------------------------------
-# Global API Patching: Strictly Force 'gemini-2.5-flash' for ALL Calls
+# Groq Wrapper Classes for Seamless Integration with Existing Agents
 # -----------------------------------------------------------------------------
-_original_GenerativeModel = genai.GenerativeModel
+class GroqAgentAdapter:
+    """Groq API کو پرانے ایجنٹ اسٹرکچر کے ساتھ ہم آہنگ کرنے کے لیے ایڈاپٹر"""
+    def __init__(self, api_key: str, model_name: str = "llama-3.3-70b-versatile"):
+        self.client = Groq(api_key=api_key)
+        self.model_name = model_name
 
-def _patched_GenerativeModel(model_name, *args, **kwargs):
-    # Pro اور پرانے 1.5 تمام ماڈلز کو زبردستی Flash پر موڑ دیں تاکہ 429 Quota Error نہ آئے
-    forced_model = "gemini-2.5-flash"
-    return _original_GenerativeModel(forced_model, *args, **kwargs)
+    def _call_groq(self, system_prompt: str, user_prompt: str, json_mode: bool = False) -> str:
+        response_format = {"type": "json_object"} if json_mode else {"type": "text"}
+        
+        chat_completion = self.client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            model=self.model_name,
+            temperature=0.2,
+            response_format=response_format
+        )
+        return chat_completion.choices[0].message.content
 
-# Google API کے انیشلائزیشن کو گلوبلی پیچ کر دیا گیا ہے
-genai.GenerativeModel = _patched_GenerativeModel
-
-from core import GitHubManager, AIArchitect, AICoder, AIReviewer
-
-def apply_active_model_override(instance, chosen_model):
-    try:
-        if hasattr(instance, "model_name"):
-            instance.model_name = "gemini-2.5-flash"
-        if hasattr(instance, "model"):
-            instance.model = genai.GenerativeModel("gemini-2.5-flash")
-    except Exception:
-        pass
-    return instance
-
-def init_agent(agent_cls, api_key, model_name):
-    agent = None
-    try:
-        agent = agent_cls(api_key=api_key, model_name="gemini-2.5-flash")
-    except TypeError:
+    def plan_project(self, project_name: str, requirements: str) -> dict:
+        system_prompt = (
+            "You are an expert AI Software Architect. Analyze the requirements and output ONLY a valid JSON object. "
+            "Do not include any markdown formatting like ```json or pre-text. "
+            "The JSON structure must be: {\"architecture_style\": \"...\", \"summary\": \"...\", \"files\": [{\"path\": \"file_path\", \"purpose\": \"file_description\"}]}"
+        )
+        user_prompt = f"Project Name: {project_name}\nRequirements:\n{requirements}"
+        
+        response_text = self._call_groq(system_prompt, user_prompt, json_mode=True)
         try:
-            agent = agent_cls(api_key=api_key)
-        except TypeError:
-            agent = agent_cls()
-    
-    return apply_active_model_override(agent, "gemini-2.5-flash")
+            return json.loads(response_text)
+        except Exception:
+            # اگر JSON کی کلیننگ درکار ہو
+            clean_json = response_text.strip().replace("```json", "").replace("```", "")
+            return json.loads(clean_json)
+
+    def generate_file_code(self, project_name: str, file_path: str, purpose: str, architecture_summary: str, all_files_list: list) -> str:
+        system_prompt = (
+            "You are an Enterprise Senior Software Engineer. Output ONLY the raw executable production-ready code for the specified file. "
+            "Do NOT wrap the code in markdown code blocks like ```python or ```javascript. Do NOT include explanations."
+        )
+        user_prompt = (
+            f"Project: {project_name}\nFile Path: {file_path}\nPurpose: {purpose}\n"
+            f"Architecture Overview: {architecture_summary}\n"
+            f"All Project Files Context: {', '.join(all_files_list)}\n\nGenerate high quality, full code for {file_path}:"
+        )
+        code = self._call_groq(system_prompt, user_prompt, json_mode=False)
+        
+        # اگر ماڈل مبلت میں بیک ٹکس (Markdown Fences) لگا دے تو انہیں صاف کریں
+        if code.startswith("```"):
+            lines = code.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            code = "\n".join(lines)
+            
+        return code
+
+    def audit_project(self, project_name: str, requirements: str, project_plan: dict, repo_url: str) -> str:
+        system_prompt = (
+            "You are a Lead Security Auditor and Quality Assurance Expert. Provide a comprehensive code audit, "
+            "security summary, and architecture verification report in Markdown format."
+        )
+        user_prompt = (
+            f"Project: {project_name}\nRepository URL: {repo_url}\nRequirements: {requirements}\n"
+            f"Architecture Plan Summary: {project_plan.get('summary', '')}\nFiles Built: {len(project_plan.get('files', []))}"
+        )
+        return self._call_groq(system_prompt, user_prompt, json_mode=False)
+
 
 # -----------------------------------------------------------------------------
 # 1. Page Configuration & Layout
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="DevPulse Studio - Autonomous Software Architect",
+    page_title="DevPulse Studio - Powered by Groq",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -69,6 +110,14 @@ st.markdown("""
         color: #64748B;
         margin-bottom: 2rem;
     }
+    .groq-badge {
+        background-color: #F97316;
+        color: white;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: bold;
+        font-size: 0.85rem;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -83,34 +132,42 @@ with st.sidebar:
 
     st.subheader("🔑 Security Credentials")
     
-    user_gemini_key = st.text_input(
-        "Gemini API Key",
-        value=st.session_state.get("gemini_key", config.gemini_api_key),
+    user_groq_key = st.text_input(
+        "Groq API Key",
+        value=st.session_state.get("groq_key", getattr(config, "groq_api_key", "")),
         type="password",
-        help="Google AI Studio سے اپنی Gemini API Key درج کریں"
+        help="console.groq.com سے اپنی مفت Groq API Key درج کریں"
     )
     
     user_github_token = st.text_input(
         "GitHub Access Token",
-        value=st.session_state.get("github_token", config.github_token),
+        value=st.session_state.get("github_token", getattr(config, "github_token", "")),
         type="password",
         help="GitHub Personal Access Token درج کریں"
     )
 
-    st.session_state["gemini_key"] = user_gemini_key
+    st.session_state["groq_key"] = user_groq_key
     st.session_state["github_token"] = user_github_token
 
     st.markdown("---")
     st.subheader("⚙️ System Configuration")
     
-    st.info("⚡ **Active Engine:** `gemini-2.5-flash` (Optimized for Free Quota Limits)")
+    selected_groq_model = st.selectbox(
+        "Active Groq Model",
+        ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
+        index=0,
+        help="کوڈنگ اور آرکیٹیکچر کے لیے Meta Llama 3.3 70B سب سے پاورفل ماڈل ہے"
+    )
     is_private_repo = st.checkbox("Private GitHub Repository", value=False)
+    
+    st.markdown("---")
+    st.markdown("⚡ **Engine:** <span class='groq-badge'>Groq LPU Acceleration</span>", unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
 # 3. Main Dashboard Header
 # -----------------------------------------------------------------------------
 st.markdown('<div class="main-header">🚀 DevPulse Studio</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Autonomous Software Architect & Production-Ready Code Generator</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Ultra-Fast Autonomous Architect & Code Generator (Powered by Meta Llama 3.3 & Groq)</div>', unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
 # 4. Input Controls & Project Specs
@@ -142,8 +199,8 @@ generate_btn = st.button("🔥 Generate & Deploy Entire Architecture to GitHub",
 # 5. Core Execution Logic
 # -----------------------------------------------------------------------------
 if generate_btn:
-    if not user_gemini_key or not user_github_token:
-        st.error("⚠️ برائے مہربانی سائڈ بار میں اپنی Gemini API Key اور GitHub Token درج کریں!")
+    if not user_groq_key or not user_github_token:
+        st.error("⚠️ برائے مہربانی سائڈ بار میں اپنی Groq API Key اور GitHub Token درج کریں!")
         st.stop()
         
     if not project_name or not project_requirements:
@@ -157,17 +214,13 @@ if generate_btn:
     status_text = st.empty()
 
     try:
-        # API Key کو صاف ستھرا کر کے انیشلائز کریں
-        clean_key = user_gemini_key.strip()
-        genai.configure(api_key=clean_key)
+        clean_groq_key = user_groq_key.strip()
+        clean_github_token = user_github_token.strip()
 
-        # Step 1: Initialize Core Agents
-        status_text.text("🤖 DevPulse Core Agents انیشلائز کیے جا رہے ہیں...")
-        github_mgr = GitHubManager(access_token=user_github_token.strip())
-        
-        architect = init_agent(AIArchitect, clean_key, "gemini-2.5-flash")
-        coder = init_agent(AICoder, clean_key, "gemini-2.5-flash")
-        reviewer = init_agent(AIReviewer, clean_key, "gemini-2.5-flash")
+        # Step 1: Initialize Groq Engine & GitHub Manager
+        status_text.text("⚡ Groq LPU Engine اور GitHub Manager انیشلائز کیے جا رہے ہیں...")
+        github_mgr = GitHubManager(access_token=clean_github_token)
+        engine = GroqAgentAdapter(api_key=clean_groq_key, model_name=selected_groq_model)
         
         progress_bar.progress(10)
 
@@ -175,19 +228,17 @@ if generate_btn:
         status_text.text(f"🐙 GitHub Repository '{project_name}' تیار کی جا رہی ہے...")
         repo = github_mgr.create_repository(
             repo_name=project_name,
-            description=f"DevPulse Studio AI: {project_requirements[:100]}...",
+            description=f"DevPulse Studio AI (Groq Llama 3.3): {project_requirements[:100]}...",
             private=is_private_repo
         )
         progress_bar.progress(25)
         st.success(f"✅ GitHub Repo تیار ہو گئی: [{repo.html_url}]({repo.html_url})")
 
         # Step 3: Architecture Blueprint Planning
-        status_text.text("🧠 AI Architect پروجیکٹ کا فائل اسٹرکچر اور ڈیزائن پلان کر رہا ہے...")
+        status_text.text("🧠 Llama 3.3 Architect پروجیکٹ کا فائل اسٹرکچر اور ڈیزائن پلان کر رہا ہے...")
         full_requirements = f"Tech Ecosystem Preference: {target_framework}\nRequirements: {project_requirements}"
         
-        apply_active_model_override(architect, "gemini-2.5-flash")
-        plan = architect.plan_project(project_name=project_name, requirements=full_requirements)
-        
+        plan = engine.plan_project(project_name=project_name, requirements=full_requirements)
         progress_bar.progress(40)
 
         st.subheader("📐 Engineered Architecture Blueprint")
@@ -196,8 +247,8 @@ if generate_btn:
         files = plan.get("files", [])
         st.markdown(f"**کل جنریٹ ہونے والی فائلز:** `{len(files)}`")
 
-        # Step 4: Code Generation & Push Loop with Safe Delay
-        status_text.text("💻 Deep Coding Agent تمام فائلز کا مکمل کوڈ بنا کر GitHub پر Push کر رہا ہے...")
+        # Step 4: Code Generation & Push Loop (Super Fast!)
+        status_text.text("💻 Llama 3.3 Coding Engine تمام فائلز کا مکمل کوڈ بنا کر GitHub پر Push کر رہا ہے...")
         
         total_files = len(files)
         files_list_names = [f.get("path") for f in files]
@@ -207,13 +258,9 @@ if generate_btn:
             file_path = file_info.get("path")
             file_purpose = file_info.get("purpose")
             
-            status_text.text(f"🛠️ [فائل {idx+1}/{total_files}] کوڈ کی جا رہی ہے: `{file_path}`")
-            
-            # Rate limit سے بچنے کے لیے 3 سیکنڈز کا وقفہ
-            time.sleep(3)
+            status_text.text(f"🛠️ [فائل {idx+1}/{total_files}] سپر فاسٹ کوڈنگ جاری ہے: `{file_path}`")
 
-            apply_active_model_override(coder, "gemini-2.5-flash")
-            code_content = coder.generate_file_code(
+            code_content = engine.generate_file_code(
                 project_name=project_name,
                 file_path=file_path,
                 purpose=file_purpose,
@@ -225,23 +272,21 @@ if generate_btn:
                 repo_name=project_name,
                 file_path=file_path,
                 content=code_content,
-                commit_message=f"DevPulse: Implemented operational logic for {file_path}"
+                commit_message=f"DevPulse (Groq): Implemented logic for {file_path}"
             )
 
             current_pct = 40 + int(((idx + 1) / total_files) * 45)
             progress_bar.progress(current_pct)
             
             with file_progress_container:
-                st.caption(f"✔ Completed & Pushed: `{file_path}`")
+                st.caption(f"⚡ Completed & Pushed: `{file_path}`")
 
         progress_bar.progress(90)
 
         # Step 5: Executive Code Audit & Review
-        status_text.text("🛡️ AI Reviewer پروجیکٹ کا سیکیورٹی اور آرکیٹیکچر آڈٹ کر رہا ہے...")
-        time.sleep(3)
+        status_text.text("🛡️ AI Auditor پروجیکٹ کا سیکیورٹی اور آرکیٹیکچر آڈٹ کر رہا ہے...")
         
-        apply_active_model_override(reviewer, "gemini-2.5-flash")
-        audit_report = reviewer.audit_project(
+        audit_report = engine.audit_project(
             project_name=project_name,
             requirements=project_requirements,
             project_plan=plan,
@@ -249,13 +294,13 @@ if generate_btn:
         )
 
         progress_bar.progress(100)
-        status_text.text("🎉 تمام مرحلے کامیابی سے مکمل ہو گئے!")
+        status_text.text("🎉 تمام مرحلے کامیابی سے اور انتہائی تیز رفتاری کے ساتھ مکمل ہو گئے!")
 
         # -----------------------------------------------------------------------------
         # 6. Final Results
         # -----------------------------------------------------------------------------
         st.balloons()
-        st.success("🎉 **مبارک ہو! آپ کا پروجیکٹ 100% مکمل اور GitHub پر لائیو ہو چکا ہے۔**")
+        st.success("🎉 **مبارک ہو! آپ کا پروجیکٹ Groq Engine کی مدد سے 100% مکمل اور GitHub پر لائیو ہو چکا ہے۔**")
         st.markdown(f"### 🔗 Access Your Code Repository: [{repo.html_url}]({repo.html_url})")
 
         st.markdown("---")
