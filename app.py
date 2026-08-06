@@ -9,27 +9,40 @@ from config import config, logger
 from core import GitHubManager, AIArchitect, AICoder, AIReviewer
 
 # -----------------------------------------------------------------------------
-# Helper Function for Safe Core Agent Initialization
+# Dynamic Model Enforcer (Hardcoded 1.5 Fix)
 # -----------------------------------------------------------------------------
-def init_agent(agent_cls, api_key, model_name):
+def apply_active_model_override(instance, chosen_model):
     """
-    سیکیور انیشلائزیشن فنکشن تاکہ اگر core.py میں parameter کا نام model_name ہو، 
-    model ہو، یا کوئی نہ ہو، کوڈ بنا کسی ایرر کے چلے۔
+    اگر کلاس کے اندر اندرونی طور پر gemini-1.5-pro ہارڈ کوڈ ہو،
+    تو یہ فنکشن اسے زبردستی active gemini-2.5 ماڈل پر سیٹ کر دے گا۔
     """
     try:
-        # 1. پہلے model_name کے ساتھ ٹرائی کرتے ہیں
-        return agent_cls(api_key=api_key, model_name=model_name)
+        if hasattr(instance, "model_name"):
+            instance.model_name = chosen_model
+        if hasattr(instance, "model") and hasattr(instance.model, "model_name"):
+            instance.model.model_name = f"models/{chosen_model}"
+    except Exception:
+        pass
+    return instance
+
+def init_agent(agent_cls, api_key, model_name):
+    """
+    سیکیور انیشلائزیشن فنکشن جو ماڈل کو اوور رائیڈ کر کے نیا ماڈل فورس کرتا ہے۔
+    """
+    agent = None
+    try:
+        agent = agent_cls(api_key=api_key, model_name=model_name)
     except TypeError:
         try:
-            # 2. اگر model_name نہ چلے تو model کی ورڈ سے ٹرائی کرتے ہیں
-            return agent_cls(api_key=api_key, model=model_name)
+            agent = agent_cls(api_key=api_key, model=model_name)
         except TypeError:
             try:
-                # 3. اگر صرف api_key ایکسیپٹ ہوتی ہو
-                return agent_cls(api_key=api_key)
+                agent = agent_cls(api_key=api_key)
             except TypeError:
-                # 4. اگر بنا کسی arguments کے انیشلائز ہوتا ہو
-                return agent_cls()
+                agent = agent_cls()
+    
+    # پرانے 1.5 ماڈل کی جگہ 2.5 ماڈل فورس کریں
+    return apply_active_model_override(agent, model_name)
 
 # -----------------------------------------------------------------------------
 # 1. Page Configuration & Layout
@@ -164,7 +177,7 @@ if generate_btn:
         status_text.text("🤖 DevPulse Core Agents انیشلائز کیے جا رہے ہیں...")
         github_mgr = GitHubManager(access_token=user_github_token)
         
-        # Dynamic Multi-Fallback Agent Initialization (Fixes Keyword Argument Errors)
+        # Dynamic Multi-Fallback Agent Initialization with Forced Active Model
         architect = init_agent(AIArchitect, user_gemini_key, architect_model_name)
         coder = init_agent(AICoder, user_gemini_key, architect_model_name)
         reviewer = init_agent(AIReviewer, user_gemini_key, architect_model_name)
@@ -184,6 +197,10 @@ if generate_btn:
         # Step 3: Architecture Blueprint Planning
         status_text.text("🧠 AI Architect پروجیکٹ کا فائل اسٹرکچر اور ڈیزائن پلان کر رہا ہے...")
         full_requirements = f"Tech Ecosystem Preference: {target_framework}\nRequirements: {project_requirements}"
+        
+        # Force active model attribute directly on plan function call if needed
+        apply_active_model_override(architect, architect_model_name)
+        
         plan = architect.plan_project(project_name=project_name, requirements=full_requirements)
         progress_bar.progress(40)
 
@@ -206,6 +223,8 @@ if generate_btn:
             file_purpose = file_info.get("purpose")
             
             status_text.text(f"🛠️ [فائل {idx+1}/{total_files}] کوڈ کی جا رہی ہے: `{file_path}`")
+            
+            apply_active_model_override(coder, architect_model_name)
             
             # Code Generation
             code_content = coder.generate_file_code(
@@ -235,6 +254,8 @@ if generate_btn:
 
         # Step 5: Executive Code Audit & Review
         status_text.text("🛡️ AI Reviewer پروجیکٹ کا سیکیورٹی اور آرکیٹیکچر آڈٹ کر رہا ہے...")
+        apply_active_model_override(reviewer, architect_model_name)
+        
         audit_report = reviewer.audit_project(
             project_name=project_name,
             requirements=project_requirements,
