@@ -73,9 +73,11 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("⚙️ System Configuration")
+    
+    # FIX 1: Updated deprecated 1.5 models to active 2.5 models
     architect_model_name = st.selectbox(
         "Architect Model",
-        ["gemini-1.5-pro", "gemini-1.5-flash"],
+        ["gemini-2.5-pro", "gemini-2.5-flash"],
         index=0
     )
     is_private_repo = st.checkbox("Private GitHub Repository", value=False)
@@ -97,7 +99,7 @@ col1, col2 = st.columns([2, 1])
 with col1:
     project_name = st.text_input(
         "📦 Repository Name",
-        placeholder="e.g., youtube-clone-platform, SaaS-Analytics-Engine",
+        placeholder="e.g., nexusvault-global-enterprise",
         help="صرف حروف، نمبرز اور ڈیش (-) استعمال کریں"
     )
 
@@ -139,9 +141,12 @@ if generate_btn:
         # Step 1: Initialize Core Agents
         status_text.status("🤖 DevPulse Core Agents انیشلائز کیے جا رہے ہیں...")
         github_mgr = GitHubManager(access_token=user_github_token)
-        architect = AIArchitect(api_key=user_gemini_key)
-        coder = AICoder(api_key=user_gemini_key)
-        reviewer = AIReviewer(api_key=user_gemini_key)
+        
+        # FIX 2: Explicitly passing the model_name selected from the sidebar
+        architect = AIArchitect(api_key=user_gemini_key, model_name=architect_model_name)
+        coder = AICoder(api_key=user_gemini_key, model_name=architect_model_name)
+        reviewer = AIReviewer(api_key=user_gemini_key, model_name=architect_model_name)
+        
         progress_bar.progress(10)
 
         # Step 2: GitHub Repository Creation
