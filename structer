@@ -1,0 +1,14 @@
+DevPulse-Studio/
+│
+├── .gitignore               # غیر ضروری فائلز کو GitHub سے باہر رکھنے کے لیے
+├── README.md                # DevPulse Studio کی برانڈڈ گائیڈ اور ڈاکومنٹیشن
+├── requirements.txt         # تمام لازمی لائبریریز (Streamlit, PyGithub, Google-GenerativeAI)
+├── config.py                 # گلوبل کنفیگریشن اور کیز مینیجر
+├── app.py                   # DevPulse Studio کا مین ڈیش بورڈ (Streamlit App)
+│
+└── core/                    # DevPulse Engine (AI Agents & Backend logic)
+    ├── __init__.py          
+    ├── github_manager.py    # GitHub Repository & Auto-Commit Handler
+    ├── ai_architect.py      # System Architecture & File Structure Planner
+    ├── ai_coder.py          # Deep Code Generator Agent (Zero-Placeholder Code)
+    └── ai_reviewer.py       # Enterprise Code Quality & Security Auditor
