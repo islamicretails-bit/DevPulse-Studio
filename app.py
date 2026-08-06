@@ -5,30 +5,37 @@ Main Streamlit Application Dashboard Interface
 
 import streamlit as st
 import time
+import google.generativeai as genai
 from config import config, logger
-from core import GitHubManager, AIArchitect, AICoder, AIReviewer
 
 # -----------------------------------------------------------------------------
-# Dynamic Model Enforcer (Hardcoded 1.5 Fix)
+# Global API Patching: Force Replacement of Legacy 1.5 Models to Active 2.5
 # -----------------------------------------------------------------------------
+_original_GenerativeModel = genai.GenerativeModel
+
+def _patched_GenerativeModel(model_name, *args, **kwargs):
+    # اگر کہیں بھی پرانا 1.5 ماڈل سخت لکھا ہو تو اسے خود بخود 2.5 سے بدل دیں
+    if "1.5" in str(model_name):
+        model_name = "gemini-2.5-pro"
+    return _original_GenerativeModel(model_name, *args, **kwargs)
+
+# Google API کے انیشلائزیشن کو گلوبلی پیچ کر دیا گیا ہے
+genai.GenerativeModel = _patched_GenerativeModel
+
+from core import GitHubManager, AIArchitect, AICoder, AIReviewer
+
+# Helper function for dynamic model assignment
 def apply_active_model_override(instance, chosen_model):
-    """
-    اگر کلاس کے اندر اندرونی طور پر gemini-1.5-pro ہارڈ کوڈ ہو،
-    تو یہ فنکشن اسے زبردستی active gemini-2.5 ماڈل پر سیٹ کر دے گا۔
-    """
     try:
         if hasattr(instance, "model_name"):
             instance.model_name = chosen_model
-        if hasattr(instance, "model") and hasattr(instance.model, "model_name"):
-            instance.model.model_name = f"models/{chosen_model}"
+        if hasattr(instance, "model"):
+            instance.model = genai.GenerativeModel(chosen_model)
     except Exception:
         pass
     return instance
 
 def init_agent(agent_cls, api_key, model_name):
-    """
-    سیکیور انیشلائزیشن فنکشن جو ماڈل کو اوور رائیڈ کر کے نیا ماڈل فورس کرتا ہے۔
-    """
     agent = None
     try:
         agent = agent_cls(api_key=api_key, model_name=model_name)
@@ -41,7 +48,6 @@ def init_agent(agent_cls, api_key, model_name):
             except TypeError:
                 agent = agent_cls()
     
-    # پرانے 1.5 ماڈل کی جگہ 2.5 ماڈل فورس کریں
     return apply_active_model_override(agent, model_name)
 
 # -----------------------------------------------------------------------------
@@ -89,7 +95,6 @@ with st.sidebar:
 
     st.subheader("🔑 Security Credentials")
     
-    # Load keys from session state or environment defaults
     user_gemini_key = st.text_input(
         "Gemini API Key",
         value=st.session_state.get("gemini_key", config.gemini_api_key),
@@ -147,7 +152,7 @@ with col2:
 project_requirements = st.text_area(
     "📋 Project Architecture & Functional Requirements",
     height=180,
-    placeholder="اپنے پروجیکٹ کے بارے میں تفصیلی بیان لکھیں۔ مثال کے طور پر: 'یوٹیوب جیسا ویڈیو سٹریمنگ پلیٹ فارم بنائیں جس میں ویڈیو اپ لوڈنگ، یوزر کنٹرولر، ویڈیو پلیئر، لایک/کمنٹس کی API، اور ڈیٹا بیس کے اسکیماز شامل ہوں...' "
+    placeholder="اپنے پروجیکٹ کے بارے میں تفصیلی بیان لکھیں۔"
 )
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -157,7 +162,6 @@ generate_btn = st.button("🔥 Generate & Deploy Entire Architecture to GitHub",
 # 5. Core Execution Logic
 # -----------------------------------------------------------------------------
 if generate_btn:
-    # 5.1 Validation Checks
     if not user_gemini_key or not user_github_token:
         st.error("⚠️ برائے مہربانی سائڈ بار میں اپنی Gemini API Key اور GitHub Token درج کریں!")
         st.stop()
@@ -173,11 +177,13 @@ if generate_btn:
     status_text = st.empty()
 
     try:
+        # Configure Gemini API Globally with User Key
+        genai.configure(api_key=user_gemini_key)
+
         # Step 1: Initialize Core Agents
         status_text.text("🤖 DevPulse Core Agents انیشلائز کیے جا رہے ہیں...")
         github_mgr = GitHubManager(access_token=user_github_token)
         
-        # Dynamic Multi-Fallback Agent Initialization with Forced Active Model
         architect = init_agent(AIArchitect, user_gemini_key, architect_model_name)
         coder = init_agent(AICoder, user_gemini_key, architect_model_name)
         reviewer = init_agent(AIReviewer, user_gemini_key, architect_model_name)
@@ -198,9 +204,7 @@ if generate_btn:
         status_text.text("🧠 AI Architect پروجیکٹ کا فائل اسٹرکچر اور ڈیزائن پلان کر رہا ہے...")
         full_requirements = f"Tech Ecosystem Preference: {target_framework}\nRequirements: {project_requirements}"
         
-        # Force active model attribute directly on plan function call if needed
         apply_active_model_override(architect, architect_model_name)
-        
         plan = architect.plan_project(project_name=project_name, requirements=full_requirements)
         progress_bar.progress(40)
 
@@ -210,12 +214,11 @@ if generate_btn:
         files = plan.get("files", [])
         st.markdown(f"**کل جنریٹ ہونے والی فائلز:** `{len(files)}`")
 
-        # Step 4: Zero-Placeholder Deep Code Generation & Push Loop
+        # Step 4: Code Generation & Push Loop
         status_text.text("💻 Deep Coding Agent تمام فائلز کا 100% مکمل کوڈ بنا کر GitHub پر Push کر رہا ہے...")
         
         total_files = len(files)
         files_list_names = [f.get("path") for f in files]
-        
         file_progress_container = st.container()
 
         for idx, file_info in enumerate(files):
@@ -223,10 +226,8 @@ if generate_btn:
             file_purpose = file_info.get("purpose")
             
             status_text.text(f"🛠️ [فائل {idx+1}/{total_files}] کوڈ کی جا رہی ہے: `{file_path}`")
-            
             apply_active_model_override(coder, architect_model_name)
             
-            # Code Generation
             code_content = coder.generate_file_code(
                 project_name=project_name,
                 file_path=file_path,
@@ -235,7 +236,6 @@ if generate_btn:
                 all_files_list=files_list_names
             )
             
-            # GitHub Commit
             github_mgr.push_file_to_repo(
                 repo_name=project_name,
                 file_path=file_path,
@@ -243,7 +243,6 @@ if generate_btn:
                 commit_message=f"DevPulse: Implemented operational logic for {file_path}"
             )
 
-            # Update Progress
             current_pct = 40 + int(((idx + 1) / total_files) * 45)
             progress_bar.progress(current_pct)
             
