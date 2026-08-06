@@ -9,28 +9,26 @@ import google.generativeai as genai
 from config import config, logger
 
 # -----------------------------------------------------------------------------
-# Global API Patching: Force Replacement of Legacy 1.5 Models to Active 2.5
+# Global API Patching: Strictly Force 'gemini-2.5-flash' for ALL Calls
 # -----------------------------------------------------------------------------
 _original_GenerativeModel = genai.GenerativeModel
 
 def _patched_GenerativeModel(model_name, *args, **kwargs):
-    # اگر کہیں بھی پرانا 1.5 ماڈل سخت لکھا ہو تو اسے خود بخود 2.5 سے بدل دیں
-    if "1.5" in str(model_name):
-        model_name = "gemini-2.5-pro"
-    return _original_GenerativeModel(model_name, *args, **kwargs)
+    # Pro اور پرانے 1.5 تمام ماڈلز کو زبردستی Flash پر موڑ دیں تاکہ 429 Quota Error نہ آئے
+    forced_model = "gemini-2.5-flash"
+    return _original_GenerativeModel(forced_model, *args, **kwargs)
 
 # Google API کے انیشلائزیشن کو گلوبلی پیچ کر دیا گیا ہے
 genai.GenerativeModel = _patched_GenerativeModel
 
 from core import GitHubManager, AIArchitect, AICoder, AIReviewer
 
-# Helper function for dynamic model assignment
 def apply_active_model_override(instance, chosen_model):
     try:
         if hasattr(instance, "model_name"):
-            instance.model_name = chosen_model
+            instance.model_name = "gemini-2.5-flash"
         if hasattr(instance, "model"):
-            instance.model = genai.GenerativeModel(chosen_model)
+            instance.model = genai.GenerativeModel("gemini-2.5-flash")
     except Exception:
         pass
     return instance
@@ -38,17 +36,14 @@ def apply_active_model_override(instance, chosen_model):
 def init_agent(agent_cls, api_key, model_name):
     agent = None
     try:
-        agent = agent_cls(api_key=api_key, model_name=model_name)
+        agent = agent_cls(api_key=api_key, model_name="gemini-2.5-flash")
     except TypeError:
         try:
-            agent = agent_cls(api_key=api_key, model=model_name)
+            agent = agent_cls(api_key=api_key)
         except TypeError:
-            try:
-                agent = agent_cls(api_key=api_key)
-            except TypeError:
-                agent = agent_cls()
+            agent = agent_cls()
     
-    return apply_active_model_override(agent, model_name)
+    return apply_active_model_override(agent, "gemini-2.5-flash")
 
 # -----------------------------------------------------------------------------
 # 1. Page Configuration & Layout
@@ -60,7 +55,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling & Premium Themeing
+# Custom Styling
 st.markdown("""
     <style>
     .main-header {
@@ -73,13 +68,6 @@ st.markdown("""
         font-size: 1.1rem;
         color: #64748B;
         margin-bottom: 2rem;
-    }
-    .status-card {
-        background-color: #F8FAFC;
-        border: 1px solid #E2E8F0;
-        border-radius: 8px;
-        padding: 1rem;
-        margin-bottom: 1rem;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -99,14 +87,14 @@ with st.sidebar:
         "Gemini API Key",
         value=st.session_state.get("gemini_key", config.gemini_api_key),
         type="password",
-        help="Google AI Studio سے اپنی Gemini API Key یہاں درج کریں"
+        help="Google AI Studio سے اپنی Gemini API Key درج کریں"
     )
     
     user_github_token = st.text_input(
         "GitHub Access Token",
         value=st.session_state.get("github_token", config.github_token),
         type="password",
-        help="GitHub Personal Access Token (PAT) 'repo' کی صلاحیتوں کے ساتھ درج کریں"
+        help="GitHub Personal Access Token درج کریں"
     )
 
     st.session_state["gemini_key"] = user_gemini_key
@@ -115,15 +103,8 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("⚙️ System Configuration")
     
-    architect_model_name = st.selectbox(
-        "Architect Model",
-        ["gemini-2.5-pro", "gemini-2.5-flash"],
-        index=0
-    )
+    st.info("⚡ **Active Engine:** `gemini-2.5-flash` (Optimized for Free Quota Limits)")
     is_private_repo = st.checkbox("Private GitHub Repository", value=False)
-    
-    st.markdown("---")
-    st.markdown("🔒 **Security Assurance:** آپ کی کیز صرف سیشن میموری میں محفوظ رہتی ہیں اور کبھی بھی کسی لاگ میں ظاہر نہیں ہوتیں۔")
 
 # -----------------------------------------------------------------------------
 # 3. Main Dashboard Header
@@ -139,8 +120,7 @@ col1, col2 = st.columns([2, 1])
 with col1:
     project_name = st.text_input(
         "📦 Repository Name",
-        placeholder="e.g., nexusvault-platform",
-        help="صرف حروف، نمبرز اور ڈیش (-) استعمال کریں"
+        placeholder="e.g., nexusvault-platform"
     )
 
 with col2:
@@ -152,7 +132,7 @@ with col2:
 project_requirements = st.text_area(
     "📋 Project Architecture & Functional Requirements",
     height=180,
-    placeholder="اپنے پروجیکٹ کے بارے میں تفصیلی بیان لکھیں۔"
+    placeholder="اپنے پروجیکٹ کی تفصیل درج کریں..."
 )
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -177,16 +157,17 @@ if generate_btn:
     status_text = st.empty()
 
     try:
-        # Configure Gemini API Globally with User Key
-        genai.configure(api_key=user_gemini_key)
+        # API Key کو صاف ستھرا کر کے انیشلائز کریں
+        clean_key = user_gemini_key.strip()
+        genai.configure(api_key=clean_key)
 
         # Step 1: Initialize Core Agents
         status_text.text("🤖 DevPulse Core Agents انیشلائز کیے جا رہے ہیں...")
-        github_mgr = GitHubManager(access_token=user_github_token)
+        github_mgr = GitHubManager(access_token=user_github_token.strip())
         
-        architect = init_agent(AIArchitect, user_gemini_key, architect_model_name)
-        coder = init_agent(AICoder, user_gemini_key, architect_model_name)
-        reviewer = init_agent(AIReviewer, user_gemini_key, architect_model_name)
+        architect = init_agent(AIArchitect, clean_key, "gemini-2.5-flash")
+        coder = init_agent(AICoder, clean_key, "gemini-2.5-flash")
+        reviewer = init_agent(AIReviewer, clean_key, "gemini-2.5-flash")
         
         progress_bar.progress(10)
 
@@ -204,8 +185,9 @@ if generate_btn:
         status_text.text("🧠 AI Architect پروجیکٹ کا فائل اسٹرکچر اور ڈیزائن پلان کر رہا ہے...")
         full_requirements = f"Tech Ecosystem Preference: {target_framework}\nRequirements: {project_requirements}"
         
-        apply_active_model_override(architect, architect_model_name)
+        apply_active_model_override(architect, "gemini-2.5-flash")
         plan = architect.plan_project(project_name=project_name, requirements=full_requirements)
+        
         progress_bar.progress(40)
 
         st.subheader("📐 Engineered Architecture Blueprint")
@@ -214,8 +196,8 @@ if generate_btn:
         files = plan.get("files", [])
         st.markdown(f"**کل جنریٹ ہونے والی فائلز:** `{len(files)}`")
 
-        # Step 4: Code Generation & Push Loop
-        status_text.text("💻 Deep Coding Agent تمام فائلز کا 100% مکمل کوڈ بنا کر GitHub پر Push کر رہا ہے...")
+        # Step 4: Code Generation & Push Loop with Safe Delay
+        status_text.text("💻 Deep Coding Agent تمام فائلز کا مکمل کوڈ بنا کر GitHub پر Push کر رہا ہے...")
         
         total_files = len(files)
         files_list_names = [f.get("path") for f in files]
@@ -226,8 +208,11 @@ if generate_btn:
             file_purpose = file_info.get("purpose")
             
             status_text.text(f"🛠️ [فائل {idx+1}/{total_files}] کوڈ کی جا رہی ہے: `{file_path}`")
-            apply_active_model_override(coder, architect_model_name)
             
+            # Rate limit سے بچنے کے لیے 3 سیکنڈز کا وقفہ
+            time.sleep(3)
+
+            apply_active_model_override(coder, "gemini-2.5-flash")
             code_content = coder.generate_file_code(
                 project_name=project_name,
                 file_path=file_path,
@@ -253,19 +238,21 @@ if generate_btn:
 
         # Step 5: Executive Code Audit & Review
         status_text.text("🛡️ AI Reviewer پروجیکٹ کا سیکیورٹی اور آرکیٹیکچر آڈٹ کر رہا ہے...")
-        apply_active_model_override(reviewer, architect_model_name)
+        time.sleep(3)
         
+        apply_active_model_override(reviewer, "gemini-2.5-flash")
         audit_report = reviewer.audit_project(
             project_name=project_name,
             requirements=project_requirements,
             project_plan=plan,
             repo_url=repo.html_url
         )
+
         progress_bar.progress(100)
         status_text.text("🎉 تمام مرحلے کامیابی سے مکمل ہو گئے!")
 
         # -----------------------------------------------------------------------------
-        # 6. Final Results & Audit Display
+        # 6. Final Results
         # -----------------------------------------------------------------------------
         st.balloons()
         st.success("🎉 **مبارک ہو! آپ کا پروجیکٹ 100% مکمل اور GitHub پر لائیو ہو چکا ہے۔**")
