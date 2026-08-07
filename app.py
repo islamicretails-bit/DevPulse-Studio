@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import re
 import zipfile
 import io
 import requests
@@ -117,7 +118,7 @@ def call_llm_api(system_prompt: str, user_prompt: str, retries=3) -> str:
             "Content-Type": "application/json",
         }
 
-        # High Speed & Lower Token Consumption Model for Rate-Limit protection
+        # High Speed & Lower Token Consumption Model
         if current_key.startswith("gsk_"):
             url = "https://api.groq.com/openai/v1/chat/completions"
             model = "llama-3.1-8b-instant"
@@ -148,7 +149,7 @@ def call_llm_api(system_prompt: str, user_prompt: str, retries=3) -> str:
                 raise e
             time.sleep(6)
 
-    raise RuntimeError("Rate limit exceeded repeatedly. Please add a second Groq API key.")
+    raise RuntimeError("Rate limit exceeded repeatedly. Please add additional API keys.")
 
 # ==========================================
 # 4. GitHub Push Function
@@ -184,6 +185,12 @@ def push_files_to_github(token, repo_name, files_dict, commit_message="Add AI Ge
 
     return results
 
+# Helper to fetch credentials safely
+def get_secret_or_env(key_name, default=""):
+    if hasattr(st, "secrets") and key_name in st.secrets:
+        return st.secrets[key_name]
+    return os.getenv(key_name, default)
+
 # ==========================================
 # 5. Sidebar Configuration & Controls
 # ==========================================
@@ -202,12 +209,12 @@ with st.sidebar:
         "GitHub Personal Access Token:",
         type="password",
         placeholder="ghp_xxxxxxxxxxxx",
-        value=os.getenv("GITHUB_TOKEN", ""),
+        value=get_secret_or_env("GITHUB_TOKEN"),
     )
     gh_repo = st.text_input(
         "Repository Name (username/repo):",
         placeholder="username/my-project",
-        value=os.getenv("GITHUB_REPO", ""),
+        value=get_secret_or_env("GITHUB_REPO"),
     )
 
     auto_push = st.checkbox("Auto Push to GitHub after Build", value=True)
@@ -219,7 +226,7 @@ with st.sidebar:
 # 6. Main App UI
 # ==========================================
 st.title("🚀 Multi-Agent Code Generation Dashboard")
-st.write("پرامپٹ درج کریں اور ملٹی ایجنٹ سسٹم کو کوڈ تیار کرنے دیں۔")
+st.write("پرامپٹ درج کریں اور ملٹی ایجنٹ سسٹم کو مکمل کوڈ تیار کرنے دیں۔")
 
 col_prompt, col_action = st.columns([3, 1])
 
@@ -260,7 +267,7 @@ with col_action:
                 st.rerun()
 
 # ==========================================
-# 7. Execution Pipeline with Auto Delay
+# 7. Execution Pipeline with Safe Architect JSON Parsing
 # ==========================================
 if st.session_state.is_building:
     st.divider()
@@ -280,25 +287,57 @@ if st.session_state.is_building:
         metric_agent.metric("موجودہ ایجنٹ", "ArchitectAgent 📐")
 
         architect_system_prompt = """You are an expert Software Architect.
-Output ONLY valid JSON without markdown:
+Return ONLY a valid JSON object matching this structure without any markdown formatting:
 {
-  "projectName": "string",
+  "projectName": "NexaVault Marketplace",
   "files": [
-    { "filePath": "src/index.ts", "description": "Main entry point" }
+    { "filePath": "package.json", "description": "Project dependencies" },
+    { "filePath": "vercel.json", "description": "Vercel deployment configuration" },
+    { "filePath": "src/app/layout.tsx", "description": "Root layout UI" },
+    { "filePath": "src/app/page.tsx", "description": "Main digital marketplace page" },
+    { "filePath": "src/app/office/page.tsx", "description": "Hidden Admin office dashboard" },
+    { "filePath": "src/app/api/ai/generate-product/route.ts", "description": "AI content generation API" },
+    { "filePath": "src/app/api/payments/checkout/route.ts", "description": "Dynamic multi-currency checkout API" },
+    { "filePath": "src/app/api/admin/analytics/route.ts", "description": "Live traffic analytics API" },
+    { "filePath": "src/components/ProductCard.tsx", "description": "Product display component" },
+    { "filePath": "src/components/AppleToast.tsx", "description": "Apple-style notifications" },
+    { "filePath": "src/lib/security.ts", "description": "Security and license key utils" },
+    { "filePath": ".env.example", "description": "Environment variables template" }
   ]
 }"""
 
+        blueprint = None
         try:
             arch_response = call_llm_api(architect_system_prompt, user_prompt)
-            clean_json = arch_response.replace("```json", "").replace("```", "").strip()
-            blueprint = json.loads(clean_json)
-            planned_files = blueprint.get("files", [])
-            total_files = len(planned_files)
-        except Exception as e:
-            st.error(f"Architect Error: {str(e)}")
-            planned_files = []
-            total_files = 0
+            json_match = re.search(r"\{.*\}", arch_response, re.DOTALL)
+            if json_match:
+                clean_json = json_match.group(0)
+                blueprint = json.loads(clean_json)
+        except Exception:
+            blueprint = None
 
+        # Fallback if Architect fails to return valid JSON
+        if not blueprint or "files" not in blueprint or not isinstance(blueprint["files"], list):
+            blueprint = {
+                "projectName": "NexaVault Marketplace",
+                "files": [
+                    {"filePath": "package.json", "description": "Project dependencies"},
+                    {"filePath": "vercel.json", "description": "Deployment configuration"},
+                    {"filePath": "src/app/layout.tsx", "description": "Root layout"},
+                    {"filePath": "src/app/page.tsx", "description": "Main page interface"},
+                    {"filePath": "src/app/office/page.tsx", "description": "Hidden Admin office"},
+                    {"filePath": "src/app/api/ai/generate-product/route.ts", "description": "AI generator API"},
+                    {"filePath": "src/app/api/payments/checkout/route.ts", "description": "Checkout API"},
+                    {"filePath": "src/app/api/admin/analytics/route.ts", "description": "Analytics API"},
+                    {"filePath": "src/components/ProductCard.tsx", "description": "Product card UI component"},
+                    {"filePath": "src/components/AppleToast.tsx", "description": "Toast notifications"},
+                    {"filePath": "src/lib/security.ts", "description": "Security & license utils"},
+                    {"filePath": ".env.example", "description": "Environment variables template"}
+                ]
+            }
+
+        planned_files = blueprint.get("files", [])
+        total_files = len(planned_files)
         completed_count = 0
 
         for idx, file_info in enumerate(planned_files):
@@ -315,11 +354,12 @@ Output ONLY valid JSON without markdown:
 
             st.write(f"🔄 **تخلیق جاری:** `{filePath}`")
 
-            coder_system_prompt = f"Write production clean code for {filePath}. Purpose: {fileDesc}. Output ONLY code."
+            coder_system_prompt = f"Write full, production-ready code for {filePath}. Purpose: {fileDesc}. Output ONLY code without explanation."
 
             try:
                 code_content = call_llm_api(coder_system_prompt, user_prompt)
-                clean_code = code_content.replace("```typescript", "").replace("```javascript", "").replace("```tsx", "").replace("```json", "").replace("```", "").strip()
+                clean_code = re.sub(r"^```[a-zA-Z]*\n", "", code_content, flags=re.MULTILINE)
+                clean_code = re.sub(r"\n```$", "", clean_code, flags=re.MULTILINE).strip()
                 st.session_state.generated_files[filePath] = clean_code
                 completed_count += 1
             except Exception as e:
@@ -329,8 +369,9 @@ Output ONLY valid JSON without markdown:
                 metric_agent.metric("موجودہ ایجنٹ", "TesterAgent 🧪")
                 try:
                     test_code = call_llm_api("Generate unit tests.", st.session_state.generated_files[filePath])
-                    clean_test = test_code.replace("```typescript", "").replace("```javascript", "").replace("```", "").strip()
-                    test_path = filePath.replace(".ts", ".test.ts")
+                    clean_test = re.sub(r"^```[a-zA-Z]*\n", "", test_code, flags=re.MULTILINE)
+                    clean_test = re.sub(r"\n```$", "", clean_test, flags=re.MULTILINE).strip()
+                    test_path = filePath.replace(".ts", ".test.ts").replace(".tsx", ".test.tsx")
                     st.session_state.generated_files[test_path] = clean_test
                 except Exception:
                     pass
@@ -356,7 +397,7 @@ Output ONLY valid JSON without markdown:
                     st.error(f"❌ `{file_p}` -> {msg}")
 
 # ==========================================
-# 8. File Explorer
+# 8. File Explorer & Manual Actions
 # ==========================================
 if st.session_state.generated_files:
     st.divider()
@@ -382,7 +423,7 @@ if st.session_state.generated_files:
         st.divider()
         if st.button("🚀 Push All Files to GitHub", use_container_width=True, type="primary"):
             if not gh_token or not gh_repo:
-                st.error("سائیڈ بار میں GitHub Token اور Repository درج کریں۔")
+                st.error("سائیڈ بار یا Secrets میں GitHub Token اور Repository درج کریں۔")
             else:
                 with st.spinner("GitHub پر اپ لوڈ ہو رہا ہے..."):
                     res = push_files_to_github(gh_token, gh_repo, st.session_state.generated_files)
