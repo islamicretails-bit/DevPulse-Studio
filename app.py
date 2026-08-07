@@ -12,7 +12,7 @@ from groq import Groq
 # Page Configuration & UI Theme
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="DevPulse Studio Enterprise Pro | Multi-Agent Engine",
+    page_title="DevPulse Studio Enterprise Pro | Unstoppable Engine",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -41,7 +41,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# API Key Manager Engine (Bulletproof Auto Rotation)
+# API Key Manager Engine (Auto Rotation)
 # ---------------------------------------------------------
 class APIKeyManager:
     def __init__(self):
@@ -87,27 +87,32 @@ class APIKeyManager:
         return False
 
 # ---------------------------------------------------------
-# High-Capacity Infinite Resilience Groq LLM Engine
+# Multi-Model Fallback & Resilience LLM Engine
 # ---------------------------------------------------------
-def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise software architect.", model="llama-3.3-70b-versatile", max_tokens=8000, logger_callback=None):
-    """
-    یہ فنکشن کبھی ٹائم آؤٹ یا لیمیٹ پر فیل نہیں ہوگا۔
-    یہ لامتناہی کوشش (Infinite Adaptive Retries) کرتا رہے گا جب تک کام مکمل نہ ہو۔
-    """
+# Models prioritized by intelligence vs rate limit headroom
+AVAILABLE_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768"
+]
+
+def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise software architect.", max_tokens=6000, logger_callback=None):
     attempt = 0
+    model_index = 0
+    
     while True:
         attempt += 1
         api_key = key_manager.get_key()
+        current_model = AVAILABLE_MODELS[model_index % len(AVAILABLE_MODELS)]
         
         if not api_key:
             return None, "No GROQ API Key found. Please add keys in sidebar or secrets."
 
         try:
-            # Explicit timeout added to prevent thread locking
-            client = Groq(api_key=api_key, timeout=60.0)
+            client = Groq(api_key=api_key, timeout=45.0)
             
             completion = client.chat.completions.create(
-                model=model,
+                model=current_model,
                 messages=[
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": prompt}
@@ -124,31 +129,33 @@ def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise
 
         except Exception as e:
             err_msg = str(e)
-            
-            # Key Rotation or Delay Logic
             rotated = key_manager.rotate()
             
-            # Smart Dynamic Pause Calculation
+            # Switch Model on Rate Limits or Repeated Attempts
             if "429" in err_msg or "rate_limit" in err_msg.lower():
-                wait_time = min(attempt * 5, 45) if rotated else min(attempt * 12, 90)
+                # Swap model if we hit rate limits heavily
+                if attempt % 2 == 0:
+                    model_index = (model_index + 1) % len(AVAILABLE_MODELS)
+                    if logger_callback:
+                        logger_callback(f"🔄 Swapping Model to `{AVAILABLE_MODELS[model_index % len(AVAILABLE_MODELS)]}` to bypass rate limit...")
+                
+                wait_time = min(attempt * 4, 30) if rotated else min(attempt * 8, 45)
                 if logger_callback:
-                    logger_callback(f"⏳ [Rate Limit / 429] Key Swapped. Waiting {wait_time}s before retry {attempt}...")
-            elif "timeout" in err_msg.lower() or "503" in err_msg or "500" in err_msg:
-                wait_time = min(attempt * 4, 30)
+                    logger_callback(f"⏳ [Rate Limit / 429] Waiting {wait_time}s (Attempt {attempt})...")
+            
+            elif "timeout" in err_msg.lower() or "503" in err_msg:
+                wait_time = min(attempt * 3, 20)
                 if logger_callback:
-                    logger_callback(f"⚠️ [Network Timeout/Server 50x] Retrying in {wait_time}s (Attempt {attempt})...")
+                    logger_callback(f"⚠️ [Network/Timeout] Retrying in {wait_time}s...")
             else:
-                wait_time = 5
+                wait_time = 4
                 if logger_callback:
-                    logger_callback(f"⚠️ [API Warning] {err_msg[:90]}... Retrying in {wait_time}s...")
+                    logger_callback(f"⚠️ [API Notice] {err_msg[:80]}... Retrying in {wait_time}s...")
 
             time.sleep(wait_time)
 
 
 def generate_large_file_code(prompt_input, file_path, key_mgr, logger_callback):
-    """
-    بہت بڑے کوڈ (1,000+ لائنز) کو بغیر کٹے یا بغیر سائز کی حد کے مکمل جنریٹ کرتا ہے۔
-    """
     system_instruction = f"You are a Principal Software Engineer implementing complete, production-grade code for {file_path}."
     
     base_prompt = f"""
@@ -167,23 +174,22 @@ def generate_large_file_code(prompt_input, file_path, key_mgr, logger_callback):
     code_accumulated, err = call_groq_llm(
         base_prompt, key_mgr, 
         system_instruction=system_instruction, 
-        max_tokens=8000, 
+        max_tokens=6000, 
         logger_callback=logger_callback
     )
 
     if err or not code_accumulated:
         return None, err
 
-    # Check if response was cut prematurely (Max Tokens Hit)
-    # continuation logic for massive files
-    if len(code_accumulated) > 15000 and not code_accumulated.strip().endswith(("}", ";", "export default", "```")):
-        logger_callback(f"🧩 File `{file_path}` seems extended. Requesting continuation chunk...")
-        continuation_prompt = f"Continue EXACTLY where you left off for `{file_path}` without repeating previous code:\n\n... {code_accumulated[-500:]}"
+    # Smart Continuation Check
+    if len(code_accumulated) > 12000 and not code_accumulated.strip().endswith(("}", ";", "export default", "```")):
+        logger_callback(f"🧩 File `{file_path}` extended response required. Requesting continuation chunk...")
+        continuation_prompt = f"Continue EXACTLY where you left off for `{file_path}` without repeating previous code:\n\n... {code_accumulated[-400:]}"
         
         chunk, chunk_err = call_groq_llm(
             continuation_prompt, key_mgr, 
             system_instruction=system_instruction, 
-            max_tokens=6000, 
+            max_tokens=4000, 
             logger_callback=logger_callback
         )
         if chunk and not chunk_err:
@@ -192,9 +198,9 @@ def generate_large_file_code(prompt_input, file_path, key_mgr, logger_callback):
     return code_accumulated, None
 
 # ---------------------------------------------------------
-# Fault-Tolerant GitHub API Push Engine
+# GitHub API Push Engine
 # ---------------------------------------------------------
-def push_to_github(repo, path, content, token, commit_message="feat: enterprise multi-module auto-commit"):
+def push_to_github(repo, path, content, token, commit_message="feat: enterprise auto-commit"):
     url = f"[https://api.github.com/repos/](https://api.github.com/repos/){repo}/contents/{path}"
     headers = {
         "Authorization": f"token {token}",
@@ -203,7 +209,6 @@ def push_to_github(repo, path, content, token, commit_message="feat: enterprise 
     }
 
     sha = None
-    # 1. Fetch SHA if exists
     for attempt in range(3):
         try:
             req = urllib.request.Request(url, headers=headers, method='GET')
@@ -213,12 +218,11 @@ def push_to_github(repo, path, content, token, commit_message="feat: enterprise 
             break
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                sha = None # File doesn't exist yet
+                sha = None
                 break
         except Exception:
             time.sleep(2)
 
-    # 2. Upload Content
     encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
     payload = {
         "message": commit_message,
@@ -235,13 +239,13 @@ def push_to_github(repo, path, content, token, commit_message="feat: enterprise 
         except Exception as e:
             if attempt == 4:
                 return False, str(e)
-            time.sleep(3 * (attempt + 1))
+            time.sleep(3)
 
 # ---------------------------------------------------------
 # User Interface Layout
 # ---------------------------------------------------------
-st.title("⚡ DevPulse Studio Enterprise Engine (Unstoppable Build Edition)")
-st.caption("Full Monorepo Architecture & Industrial-Grade Fault-Tolerant Code Generator")
+st.title("⚡ DevPulse Studio Enterprise Engine")
+st.caption("Auto-Dynamic Multi-Model Engine (Infinite Resilience)")
 
 key_mgr = APIKeyManager()
 
@@ -249,29 +253,37 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     
     user_keys_input = st.text_area(
-        "Groq API Keys (کاما سے الگ کر کے درج کریں):",
+        "Groq API Keys (کاما سے الگ کریں):",
         placeholder="gsk_key1, gsk_key2, gsk_key3",
-        help="Secrets کے علاوہ آپ یہاں بھی دستی کیز درج کر سکتے ہیں۔"
+        help="یہاں متعدد API Keys درج کر کے Rate Limits سے بچیں۔"
     )
     if user_keys_input:
         key_mgr.add_manual_keys(user_keys_input)
 
-    st.info(f"🔑 Active Groq Keys Detected: **{len(key_mgr.keys)}**")
+    active_keys_count = len(key_mgr.keys)
+    st.info(f"🔑 Active Groq Keys Detected: **{active_keys_count}**")
+
+    # Auto-Calculate Dynamic Delay based on API Key availability
+    if active_keys_count > 3:
+        recommended_delay = 3
+    elif active_keys_count == 2 or active_keys_count == 3:
+        recommended_delay = 6
+    else:
+        recommended_delay = 12
+
+    st.success(f"🎯 Dynamic Delay Set To: **{recommended_delay}s per file**")
     
     env_token = os.environ.get("GITHUB_TOKEN", "")
     secret_token = st.secrets.get("GITHUB_TOKEN", "") if hasattr(st, "secrets") else ""
-    github_token = st.text_input("GitHub Personal Access Token", value=env_token or secret_token, type="password")
+    github_token = st.text_input("GitHub Token", value=env_token or secret_token, type="password")
 
     env_repo = os.environ.get("GITHUB_REPO", "")
     secret_repo = st.secrets.get("GITHUB_REPO", "") if hasattr(st, "secrets") else ""
     github_repo = st.text_input("Target Repository (username/repo)", value=env_repo or secret_repo)
-    
-    st.markdown("---")
-    delay_interval = st.slider("Rate-Limit Safety Pause (Seconds)", min_value=2, max_value=30, value=6)
 
 prompt_input = st.text_area(
     "پرامپٹ درج کریں (Master Enterprise Blueprint Prompt):",
-    height=240,
+    height=220,
     placeholder="اپنا پورا پرامپٹ یہاں درج کریں۔"
 )
 
@@ -281,16 +293,16 @@ if st.button("🚀 Enterprise Build شروع کریں"):
     elif not github_token or not github_repo:
         st.error("GitHub Token اور Repository لازمی ہیں۔")
     elif len(key_mgr.keys) == 0:
-        st.error("کوئی GROQ API Key نہیں ملی! Sidebar، Streamlit Secrets یا Environment Variables چیک کریں۔")
+        st.error("کوئی GROQ API Key نہیں ملی! Sidebar یا Streamlit Secrets چیک کریں۔")
     else:
         st.markdown("---")
         
-        arch_expander = st.expander("🏗️ پروجیکٹ کا آرکیٹیکچر اور فائل سٹرکچر", expanded=True)
+        arch_expander = st.expander("🏗️ پروجیکٹ آرکیٹیکچر", expanded=True)
         arch_placeholder = arch_expander.empty()
         
         col1, col2 = st.columns([1, 2])
         with col1:
-            st.markdown("### 📊 بلڈ پیشرفت")
+            st.markdown("### 📊 پیشرفت")
             status_placeholder = st.empty()
             progress_bar = st.progress(0)
             
@@ -303,38 +315,27 @@ if st.button("🚀 Enterprise Build شروع کریں"):
             logs.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
             log_box.markdown(f"<div class='log-container'>{'<br>'.join(logs[::-1])}</div>", unsafe_allow_html=True)
 
-        add_log("🤖 ArchitectAgent ایکٹیویٹ ہو چکا ہے۔..")
+        add_log("🤖 ArchitectAgent ایکٹیویٹ ہو رہا ہے۔..")
 
-        # Architectural Overview Generation
-        arch_plan_prompt = f"""
-        Provide a clean structural overview of this project architecture in 4 brief sections:
-        1. Core Purpose
-        2. Tech Stack & Modules
-        3. Database & Authentication
-        4. API & Security Layer
-
-        Blueprint: {prompt_input}
-        """
-
-        arch_placeholder.info("⏳ ArchitectAgent سسٹم کا مکمل جائزہ تیار کر رہا ہے...")
+        # Compact Overview Call
+        arch_plan_prompt = f"Provide a concise summary (Tech Stack, DB, Core Features) for:\n{prompt_input[:1500]}"
+        arch_placeholder.info("⏳ ArchitectAgent کا جائزہ بن رہا ہے...")
+        
         arch_details, err = call_groq_llm(
             arch_plan_prompt, key_mgr,
             system_instruction="You are a Chief Enterprise Software Architect.",
-            max_tokens=2500,
+            max_tokens=1500,
             logger_callback=add_log
         )
 
         if arch_details:
             arch_placeholder.markdown(arch_details)
-            add_log("✅ آرکیٹیکچر کا جائزہ کامیابی سے لوڈ ہو گیا ہے۔")
-        else:
-            arch_placeholder.warning("⚠️ آرکیٹیکچر خلاصہ اسکیپ ہوا، فائلز جنریشن جاری ہے۔")
+            add_log("✅ آرکیٹیکچر تیار ہو گیا۔")
 
-        # Deep File Pattern Extraction
+        # Extract File Structure
         extracted_from_prompt = re.findall(r'[\w\/\.\-]+\.(?:prisma|json|js|jsx|css|ts|tsx|env|example)', prompt_input)
         file_paths = list(set(extracted_from_prompt))
 
-        # Fallback Architecture List if non extracted
         if not file_paths:
             file_paths = [
                 "prisma/schema.prisma", "package.json", "tailwind.config.js", "src/app/globals.css",
@@ -352,7 +353,7 @@ if st.button("🚀 Enterprise Build شروع کریں"):
             ]
 
         total_files = len(file_paths)
-        add_log(f"🚀 کل **{total_files}** فائلز کی غیر متزلزل جنریشن اور GitHub پر پش کا عمل شروع ہو رہا ہے۔")
+        add_log(f"🚀 **{total_files}** فائلوں کی تیاری شروع ہو رہی ہے۔")
 
         completed_count = 0
         for idx, file_path in enumerate(file_paths):
@@ -366,14 +367,13 @@ if st.button("🚀 Enterprise Build شروع کریں"):
                 add_log(f"❌ Error Generating {file_path}: {gen_err}")
                 continue
 
-            # Strip markdown formatting cleanly
             clean_code = re.sub(r'^```\w*\n', '', code_content, flags=re.MULTILINE)
             clean_code = re.sub(r'\n```$', '', clean_code, flags=re.MULTILINE).strip()
 
             success, github_msg = push_to_github(github_repo, file_path, clean_code, github_token)
             
             if success:
-                add_log(f"✅ GitHub Commit Successful: `{file_path}`")
+                add_log(f"✅ GitHub Uploaded: `{file_path}`")
                 completed_count += 1
             else:
                 add_log(f"⚠️ GitHub Upload Failed ({file_path}): {github_msg}")
@@ -387,8 +387,8 @@ if st.button("🚀 Enterprise Build شروع کریں"):
             </div>
             """, unsafe_allow_html=True)
 
-            # Safety delay between successfully processed files
-            time.sleep(delay_interval)
+            # Auto Dynamic Delay Application
+            time.sleep(recommended_delay)
 
-        add_log("✨ بلڈ کا پروسیس کامیابی سے مکمل ہو چکا ہے!")
-        st.success("🎉 تمام کی تمام فائلیں آپ کی GitHub ریپوزٹری میں مکمل طور پر اپ لوڈ ہو چکی ہیں!")
+        add_log("✨ بلڈ پروسیس کامیابی سے مکمل ہو چکا ہے!")
+        st.success("🎉 تمام کی تمام فائلیں آپ کی GitHub ریپوزٹری میں اپ لوڈ ہو چکی ہیں!")
