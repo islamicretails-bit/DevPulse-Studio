@@ -1,0 +1,24 @@
+{
+  "name": "@devpulse/cli",
+  "version": "1.0.0",
+  "description": "Interactive Command Line Interface for DevPulse Studio Pro Engine",
+  "main": "dist/index.js",
+  "bin": {
+    "devpulse": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rimraf dist .turbo"
+  },
+  "dependencies": {
+    "@devpulse/engine": "workspace:*",
+    "commander": "^12.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.3"
+  }
+}
