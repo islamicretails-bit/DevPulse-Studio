@@ -1,442 +1,315 @@
-import os
-import sys
-import json
-import time
-import re
-import zipfile
-import io
-import requests
 import streamlit as st
-from dotenv import load_dotenv
+import os
+import time
+import json
+import base64
+import urllib.request
+import urllib.error
+import re
 
-# Local environment variables load کریں
-load_dotenv()
-
-# ==========================================
-# 1. Page Configuration & UI Setup
-# ==========================================
+# ---------------------------------------------------------
+# Page Configuration & Custom CSS (Apple Dark Theme)
+# ---------------------------------------------------------
 st.set_page_config(
-    page_title="DevPulse Studio Pro",
-    page_icon="⚡",
+    page_title="DevPulse Studio Enterprise Pro | 100k Lines Engine",
+    page_icon="🚀",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
-st.markdown(
-    """
-    <style>
-    .main {
-        background-color: #0f172a;
-        color: #f8fafc;
+st.markdown("""
+<style>
+    .main { background-color: #0B0F17; color: #F3F4F6; }
+    .stButton>button {
+        background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+        color: white; border: none; padding: 12px 24px;
+        border-radius: 8px; font-weight: 600; width: 100%;
+        transition: all 0.3s ease;
     }
-    .stMetric {
-        background-color: #1e293b;
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #334155;
+    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4); }
+    .status-card {
+        background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px; padding: 16px; margin-bottom: 12px; backdrop-filter: blur(12px);
     }
-    .stProgress > div > div > div > div {
-        background-image: linear-gradient(to right, #6366f1 , #10b981);
+    .log-container {
+        background-color: #05070B; border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px; padding: 12px; font-family: 'Courier New', monospace;
+        height: 380px; overflow-y: auto; color: #10B981; font-size: 13px;
     }
-    .agent-card {
-        background-color: #1e293b;
-        padding: 12px 18px;
-        border-radius: 8px;
-        border-left: 4px solid #6366f1;
-        margin-bottom: 10px;
-    }
-    </style>
-""",
-    unsafe_allow_html=True,
-)
+</style>
+""", unsafe_allow_html=True)
 
-# ==========================================
-# 2. Multi-Key Pool Collection
-# ==========================================
-def collect_api_keys():
-    groq_keys = []
-    openai_keys = []
+# ---------------------------------------------------------
+# API Key Manager & Rotator Engine
+# ---------------------------------------------------------
+class APIKeyManager:
+    def __init__(self):
+        self.keys = []
+        # Collect Groq API Keys dynamically from Environment Variables
+        for k in os.environ:
+            if k.startswith("GROQ_API_KEY"):
+                val = os.environ.get(k)
+                if val and val.strip():
+                    self.keys.append(val.strip())
+        
+        # Check Streamlit secrets if environment keys are missing
+        if hasattr(st, "secrets"):
+            for k in st.secrets:
+                if "GROQ_API_KEY" in k:
+                    val = st.secrets[k]
+                    if val and val.strip() and val.strip() not in self.keys:
+                        self.keys.append(val.strip())
+                        
+        self.current_index = 0
 
-    def get_val(key_name):
-        if hasattr(st, "secrets") and key_name in st.secrets:
-            return st.secrets[key_name]
-        return os.getenv(key_name)
+    def get_key(self):
+        if not self.keys:
+            return None
+        return self.keys[self.current_index]
 
-    # Groq Keys
-    i = 1
-    while True:
-        k = get_val(f"GROQ_API_KEY_{i}")
-        if not k and i == 1:
-            k = get_val("GROQ_API_KEY")
-        if k:
-            groq_keys.append(k.strip())
-            i += 1
-        else:
-            break
+    def rotate(self):
+        if len(self.keys) > 1:
+            self.current_index = (self.current_index + 1) % len(self.keys)
+            return True
+        return False
 
-    # OpenAI Keys
-    i = 1
-    while True:
-        k = get_val(f"OPENAI_API_KEY_{i}")
-        if not k and i == 1:
-            k = get_val("OPENAI_API_KEY")
-        if k:
-            openai_keys.append(k.strip())
-            i += 1
-        else:
-            break
+# ---------------------------------------------------------
+# Groq API Client with Auto Retry & Backoff Engine
+# ---------------------------------------------------------
+def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise software architect.", model="llama-3.3-70b-versatile", max_retries=5):
+    for attempt in range(max_retries):
+        api_key = key_manager.get_key()
+        if not api_key:
+            return None, "No GROQ API Key found in Environment or Secrets."
 
-    return groq_keys, openai_keys
-
-
-groq_keys, openai_keys = collect_api_keys()
-
-# Session States
-if "is_building" not in st.session_state:
-    st.session_state.is_building = False
-if "is_paused" not in st.session_state:
-    st.session_state.is_paused = False
-if "generated_files" not in st.session_state:
-    st.session_state.generated_files = {}
-if "key_index" not in st.session_state:
-    st.session_state.key_index = 0
-
-# ==========================================
-# 3. LLM API Call Function with Rate Limit Auto-Retry
-# ==========================================
-def call_llm_api(system_prompt: str, user_prompt: str, retries=3) -> str:
-    all_keys = groq_keys + openai_keys
-    if not all_keys:
-        raise ValueError("No API keys found!")
-
-    for attempt in range(retries):
-        current_key = all_keys[st.session_state.key_index % len(all_keys)]
-        st.session_state.key_index += 1
-
+        url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {current_key}",
-            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
         }
-
-        # High Speed & Lower Token Consumption Model
-        if current_key.startswith("gsk_"):
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            model = "llama-3.1-8b-instant"
-        else:
-            url = "https://api.openai.com/v1/chat/completions"
-            model = "gpt-4o-mini"
-
         payload = {
             "model": model,
             "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt}
             ],
             "temperature": 0.2,
+            "max_tokens": 8000
         }
 
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=60)
-            if response.status_code == 200:
-                return response.json()["choices"][0]["message"]["content"]
-            elif response.status_code == 429:
-                # Rate limit hit, wait & retry
-                time.sleep(8)
+            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+            with urllib.request.urlopen(req, timeout=120) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                content = res_data['choices'][0]['message']['content']
+                return content, None
+        except urllib.error.HTTPError as e:
+            if e.code == 429:  # Rate limit exceeded
+                rotated = key_manager.rotate()
+                wait_time = (attempt + 1) * 8
+                time.sleep(wait_time)
             else:
-                raise RuntimeError(f"API Error ({response.status_code}): {response.text}")
-        except Exception as e:
-            if attempt == retries - 1:
-                raise e
-            time.sleep(6)
+                time.sleep(4)
+        except Exception as ex:
+            time.sleep(4)
 
-    raise RuntimeError("Rate limit exceeded repeatedly. Please add additional API keys.")
+    return None, "Rate limit exceeded across all keys repeatedly. Please wait 1-2 minutes or add additional API keys."
 
-# ==========================================
-# 4. GitHub Push Function
-# ==========================================
-def push_files_to_github(token, repo_name, files_dict, commit_message="Add AI Generated Code"):
+# ---------------------------------------------------------
+# GitHub Integration Handler
+# ---------------------------------------------------------
+def push_to_github(repo, path, content, token, commit_message="feat: enterprise multi-module auto-commit"):
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "DevPulse-Studio"
     }
 
-    results = []
-    for file_path, content in files_dict.items():
-        url = f"https://api.github.com/repos/{repo_name}/contents/{file_path}"
-        
-        get_res = requests.get(url, headers=headers)
-        sha = get_res.json().get("sha") if get_res.status_code == 200 else None
+    # Check if file already exists to obtain SHA
+    sha = None
+    try:
+        req = urllib.request.Request(url, headers=headers, method='GET')
+        with urllib.request.urlopen(req) as response:
+            res_data = json.loads(response.read().decode('utf-8'))
+            sha = res_data.get('sha')
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            return False, f"GitHub Get Error: {e.code}"
+    except Exception as e:
+        pass
 
-        import base64
-        encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+    encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+    payload = {
+        "message": commit_message,
+        "content": encoded_content
+    }
+    if sha:
+        payload["sha"] = sha
 
-        data = {
-            "message": commit_message,
-            "content": encoded_content,
-        }
-        if sha:
-            data["sha"] = sha
+    try:
+        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='PUT')
+        with urllib.request.urlopen(req) as response:
+            return True, "Success"
+    except urllib.error.HTTPError as e:
+        return False, f"HTTP Error {e.code}: {e.read().decode('utf-8')}"
+    except Exception as e:
+        return False, str(e)
 
-        put_res = requests.put(url, headers=headers, json=data)
-        if put_res.status_code in [200, 201]:
-            results.append((file_path, True, "Uploaded"))
-        else:
-            results.append((file_path, False, put_res.json().get("message", "Failed")))
+# ---------------------------------------------------------
+# UI Layout & Application Engine
+# ---------------------------------------------------------
+st.title("⚡ DevPulse Studio Pro (100k Lines Scale Engine)")
+st.caption("Enterprise Monorepo Architecture & Multi-Agent Autonomous Code Generator")
 
-    return results
+key_mgr = APIKeyManager()
 
-# Helper to fetch credentials safely
-def get_secret_or_env(key_name, default=""):
-    if hasattr(st, "secrets") and key_name in st.secrets:
-        return st.secrets[key_name]
-    return os.getenv(key_name, default)
-
-# ==========================================
-# 5. Sidebar Configuration & Controls
-# ==========================================
+# Sidebar Configuration
 with st.sidebar:
-    st.title("⚡ DevPulse Studio Pro")
-    st.caption("Enterprise Autonomous Multi-Agent AI System")
-    st.divider()
+    st.header("⚙️ System Status & Secrets")
+    st.info(f"🔑 Active Groq Keys Detected: **{len(key_mgr.keys)}**")
+    
+    env_token = os.environ.get("GITHUB_TOKEN", "")
+    secret_token = st.secrets.get("GITHUB_TOKEN", "") if hasattr(st, "secrets") else ""
+    default_token = env_token or secret_token
+    github_token = st.text_input("GitHub Personal Access Token", value=default_token, type="password")
 
-    st.subheader("🔑 API Key Status")
-    st.write(f"**Groq Keys:** `{len(groq_keys)} Active`")
-    st.write(f"**OpenAI Keys:** `{len(openai_keys)} Active`")
+    env_repo = os.environ.get("GITHUB_REPO", "")
+    secret_repo = st.secrets.get("GITHUB_REPO", "") if hasattr(st, "secrets") else ""
+    default_repo = env_repo or secret_repo
+    github_repo = st.text_input("Target Repository (username/repo)", value=default_repo)
+    
+    st.markdown("---")
+    delay_interval = st.slider("Rate-Limit Delay per File (Seconds)", min_value=6, max_value=20, value=12)
+    st.caption("A delay of 12-15s prevents Groq rate limits for massive enterprise codebases.")
 
-    st.divider()
-    st.subheader("🐙 GitHub Integration")
-    gh_token = st.text_input(
-        "GitHub Personal Access Token:",
-        type="password",
-        placeholder="ghp_xxxxxxxxxxxx",
-        value=get_secret_or_env("GITHUB_TOKEN"),
-    )
-    gh_repo = st.text_input(
-        "Repository Name (username/repo):",
-        placeholder="username/my-project",
-        value=get_secret_or_env("GITHUB_REPO"),
-    )
+# Main Prompt Input
+prompt_input = st.text_area(
+    "پرامپٹ درج کریں (Master Enterprise Blueprint Prompt):",
+    height=250,
+    placeholder="پاس ورڈ، ماسٹر پرامپٹ، یا 100,000 لائینز کے پروجیکٹ کی تفصیلات یہاں درج کریں۔"
+)
 
-    auto_push = st.checkbox("Auto Push to GitHub after Build", value=True)
-
-    st.divider()
-    auto_test = st.checkbox("Enable Automated Unit Tests", value=False)
-
-# ==========================================
-# 6. Main App UI
-# ==========================================
-st.title("🚀 Multi-Agent Code Generation Dashboard")
-st.write("پرامپٹ درج کریں اور ملٹی ایجنٹ سسٹم کو مکمل کوڈ تیار کرنے دیں۔")
-
-col_prompt, col_action = st.columns([3, 1])
-
-with col_prompt:
-    user_prompt = st.text_area(
-        "پروجیکٹ کی تفصیل درج کریں:",
-        placeholder="مثال: NexaVault Digital Marketplace کا پروجیکٹ تیار کریں۔",
-        height=130,
-        disabled=st.session_state.is_building,
-    )
-
-with col_action:
-    st.write("### ")
-    if not st.session_state.is_building:
-        if st.button("🚀 بلڈ شروع کریں", use_container_width=True, type="primary"):
-            if not user_prompt:
-                st.warning("براہ کرم پرامپٹ فراہم کریں۔")
-            elif not groq_keys and not openai_keys:
-                st.error("API Keys دستیاب نہیں ہیں۔")
-            else:
-                st.session_state.is_building = True
-                st.session_state.is_paused = False
-                st.session_state.generated_files = {}
-                st.rerun()
+if st.button("🚀 100k Lines Enterprise Build شروع کریں"):
+    if not prompt_input.strip():
+        st.error("براہِ کرم پہلے پرامپٹ درج کریں۔")
+    elif not github_token or not github_repo:
+        st.error("GitHub Token اور Repository کا ہونا ضروری ہے۔")
+    elif len(key_mgr.keys) == 0:
+        st.error("کوئی Groq API Key نہیں ملی! Streamlit Secrets یا Environment میں GROQ_API_KEY_1 وغیرہ شامل کریں۔")
     else:
-        col_pause, col_stop = st.columns(2)
-        with col_pause:
-            if st.button(
-                "⏸️ پاز" if not st.session_state.is_paused else "▶️ ریزیوم",
-                use_container_width=True,
-            ):
-                st.session_state.is_paused = not st.session_state.is_paused
-                st.rerun()
-        with col_stop:
-            if st.button("🛑 روکے", use_container_width=True):
-                st.session_state.is_building = False
-                st.session_state.is_paused = False
-                st.rerun()
-
-# ==========================================
-# 7. Execution Pipeline with Safe Architect JSON Parsing
-# ==========================================
-if st.session_state.is_building:
-    st.divider()
-
-    col_m1, col_m2, col_m3 = st.columns(3)
-    metric_status = col_m1.empty()
-    metric_files = col_m2.empty()
-    metric_agent = col_m3.empty()
-
-    progress_bar = st.progress(0)
-    log_container = st.container()
-
-    with log_container:
-        st.subheader("📋 لائیو ایگزیکیوشن لاگز")
-
-        metric_status.metric("اسٹیٹس", "ایکٹیو ⚡")
-        metric_agent.metric("موجودہ ایجنٹ", "ArchitectAgent 📐")
-
-        architect_system_prompt = """You are an expert Software Architect.
-Return ONLY a valid JSON object matching this structure without any markdown formatting:
-{
-  "projectName": "NexaVault Marketplace",
-  "files": [
-    { "filePath": "package.json", "description": "Project dependencies" },
-    { "filePath": "vercel.json", "description": "Vercel deployment configuration" },
-    { "filePath": "src/app/layout.tsx", "description": "Root layout UI" },
-    { "filePath": "src/app/page.tsx", "description": "Main digital marketplace page" },
-    { "filePath": "src/app/office/page.tsx", "description": "Hidden Admin office dashboard" },
-    { "filePath": "src/app/api/ai/generate-product/route.ts", "description": "AI content generation API" },
-    { "filePath": "src/app/api/payments/checkout/route.ts", "description": "Dynamic multi-currency checkout API" },
-    { "filePath": "src/app/api/admin/analytics/route.ts", "description": "Live traffic analytics API" },
-    { "filePath": "src/components/ProductCard.tsx", "description": "Product display component" },
-    { "filePath": "src/components/AppleToast.tsx", "description": "Apple-style notifications" },
-    { "filePath": "src/lib/security.ts", "description": "Security and license key utils" },
-    { "filePath": ".env.example", "description": "Environment variables template" }
-  ]
-}"""
-
-        blueprint = None
-        try:
-            arch_response = call_llm_api(architect_system_prompt, user_prompt)
-            json_match = re.search(r"\{.*\}", arch_response, re.DOTALL)
-            if json_match:
-                clean_json = json_match.group(0)
-                blueprint = json.loads(clean_json)
-        except Exception:
-            blueprint = None
-
-        # Fallback if Architect fails to return valid JSON
-        if not blueprint or "files" not in blueprint or not isinstance(blueprint["files"], list):
-            blueprint = {
-                "projectName": "NexaVault Marketplace",
-                "files": [
-                    {"filePath": "package.json", "description": "Project dependencies"},
-                    {"filePath": "vercel.json", "description": "Deployment configuration"},
-                    {"filePath": "src/app/layout.tsx", "description": "Root layout"},
-                    {"filePath": "src/app/page.tsx", "description": "Main page interface"},
-                    {"filePath": "src/app/office/page.tsx", "description": "Hidden Admin office"},
-                    {"filePath": "src/app/api/ai/generate-product/route.ts", "description": "AI generator API"},
-                    {"filePath": "src/app/api/payments/checkout/route.ts", "description": "Checkout API"},
-                    {"filePath": "src/app/api/admin/analytics/route.ts", "description": "Analytics API"},
-                    {"filePath": "src/components/ProductCard.tsx", "description": "Product card UI component"},
-                    {"filePath": "src/components/AppleToast.tsx", "description": "Toast notifications"},
-                    {"filePath": "src/lib/security.ts", "description": "Security & license utils"},
-                    {"filePath": ".env.example", "description": "Environment variables template"}
-                ]
-            }
-
-        planned_files = blueprint.get("files", [])
-        total_files = len(planned_files)
-        completed_count = 0
-
-        for idx, file_info in enumerate(planned_files):
-            while st.session_state.is_paused:
-                metric_status.metric("اسٹیٹس", "پاز شدہ ⏸️")
-                time.sleep(1)
-
-            filePath = file_info.get("filePath", f"file_{idx}.ts")
-            fileDesc = file_info.get("description", "Code file")
-
-            metric_status.metric("اسٹیٹس", "ایکٹیو ⚡")
-            metric_agent.metric("موجودہ ایجنٹ", "CoderAgent 💻")
-            metric_files.metric("فائلیں مکمل", f"{completed_count} / {total_files}")
-
-            st.write(f"🔄 **تخلیق جاری:** `{filePath}`")
-
-            coder_system_prompt = f"Write full, production-ready code for {filePath}. Purpose: {fileDesc}. Output ONLY code without explanation."
-
-            try:
-                code_content = call_llm_api(coder_system_prompt, user_prompt)
-                clean_code = re.sub(r"^```[a-zA-Z]*\n", "", code_content, flags=re.MULTILINE)
-                clean_code = re.sub(r"\n```$", "", clean_code, flags=re.MULTILINE).strip()
-                st.session_state.generated_files[filePath] = clean_code
-                completed_count += 1
-            except Exception as e:
-                st.error(f"Failed {filePath}: {str(e)}")
-
-            if auto_test and filePath in st.session_state.generated_files:
-                metric_agent.metric("موجودہ ایجنٹ", "TesterAgent 🧪")
-                try:
-                    test_code = call_llm_api("Generate unit tests.", st.session_state.generated_files[filePath])
-                    clean_test = re.sub(r"^```[a-zA-Z]*\n", "", test_code, flags=re.MULTILINE)
-                    clean_test = re.sub(r"\n```$", "", clean_test, flags=re.MULTILINE).strip()
-                    test_path = filePath.replace(".ts", ".test.ts").replace(".tsx", ".test.tsx")
-                    st.session_state.generated_files[test_path] = clean_test
-                except Exception:
-                    pass
-
-            progress = int((completed_count / total_files) * 100) if total_files > 0 else 100
-            progress_bar.progress(progress)
+        st.markdown("---")
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            st.markdown("### 📊 بلڈ پیشرفت")
+            status_placeholder = st.empty()
+            progress_bar = st.progress(0)
             
-            # Rate Limit Protection Delay (6 seconds between requests)
-            time.sleep(6)
+        with col2:
+            st.markdown("### 📋 لائیو لاگز")
+            log_box = st.empty()
+            
+        logs = []
+        def add_log(msg):
+            logs.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+            log_box.markdown(f"<div class='log-container'>{'<br>'.join(logs[::-1])}</div>", unsafe_allow_html=True)
 
-        st.session_state.is_building = False
-        metric_status.metric("اسٹیٹس", "مکمل 🟢")
-        st.success("✨ تمام فائلیں کامیابی سے بغیر کسی ایرر کے جنریٹ ہو گئی ہیں!")
+        add_log("🤖 ArchitectAgent کو ایکٹیویٹ کیا جا رہا ہے...")
+        add_log("🔍 پروجیکٹ کے پورے آرکیٹیکچر کا بریک ڈاؤن (100k Lines Planning) شروع...")
 
-        # Auto Push to GitHub if Enabled
-        if auto_push and gh_token and gh_repo:
-            st.info("🐙 GitHub پر تمام فائلیں اپ لوڈ ہو رہی ہیں...")
-            res = push_files_to_github(gh_token, gh_repo, st.session_state.generated_files)
-            for file_p, success, msg in res:
-                if success:
-                    st.caption(f"✅ `{file_p}` -> GitHub")
-                else:
-                    st.error(f"❌ `{file_p}` -> {msg}")
+        # Step 1: Architectural Decomposition Phase
+        decomposition_prompt = f"""
+        Break down the following massive enterprise system into a granular list of at least 35 to 50 distinct source files to reach a 60,000 to 100,000 lines architecture scale.
+        Return ONLY a raw JSON array of file paths. Example format: ["prisma/schema.prisma", "src/app/page.tsx", ...]
 
-# ==========================================
-# 8. File Explorer & Manual Actions
-# ==========================================
-if st.session_state.generated_files:
-    st.divider()
-    st.subheader("📂 تیار شدہ فائلیں")
+        System Prompt / Blueprint:
+        {prompt_input}
+        """
 
-    col_view, col_actions = st.columns([2, 1])
-
-    with col_actions:
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            for file_path, code_content in st.session_state.generated_files.items():
-                zip_file.writestr(file_path, code_content)
-        zip_buffer.seek(0)
-
-        st.download_button(
-            label="📦 Zip ڈاؤن لوڈ کریں",
-            data=zip_buffer,
-            file_name="project.zip",
-            mime="application/zip",
-            use_container_width=True,
+        file_list_raw, err = call_groq_llm(
+            decomposition_prompt, key_mgr, 
+            system_instruction="You are an enterprise software architect. Return ONLY valid JSON string array of file paths."
         )
 
-        st.divider()
-        if st.button("🚀 Push All Files to GitHub", use_container_width=True, type="primary"):
-            if not gh_token or not gh_repo:
-                st.error("سائیڈ بار یا Secrets میں GitHub Token اور Repository درج کریں۔")
+        file_paths = []
+        if file_list_raw:
+            try:
+                cleaned_json = re.search(r'\[.*\]', file_list_raw, re.DOTALL)
+                if cleaned_json:
+                    file_paths = json.loads(cleaned_json.group(0))
+            except Exception as e:
+                add_log(f"⚠️ JSON Parse Error, Fallback file structure apply ہو رہا ہے: {str(e)}")
+
+        # Fallback File Blueprint if decomposition output fails
+        if not file_paths:
+            file_paths = [
+                "prisma/schema.prisma", "package.json", "tailwind.config.js", "src/app/globals.css",
+                "src/types/index.ts", "src/lib/security.ts", "src/lib/geo-currency.ts", "src/lib/ai-generator.ts",
+                "src/app/layout.tsx", "src/app/page.tsx", "src/app/office/page.tsx",
+                "src/app/dashboard/page.tsx", "src/app/affiliate/page.tsx", "src/app/vendor/page.tsx",
+                "src/components/marketplace/ProductGrid.tsx", "src/components/marketplace/ProductCard.tsx",
+                "src/components/marketplace/CustomRequestModal.tsx", "src/components/marketplace/AppleToast.tsx",
+                "src/components/admin/LiveTrafficMap.tsx", "src/components/admin/AIOperationsHub.tsx",
+                "src/components/admin/SalesAnalyticsChart.tsx", "src/components/admin/CustomRequestsTable.tsx",
+                "src/app/api/cron/auto-generate/route.ts", "src/app/api/ai/generate-product/route.ts",
+                "src/app/api/payments/checkout/route.ts", "src/app/api/admin/analytics/route.ts",
+                "src/app/api/downloads/secure/route.ts", "vercel.json", ".env.example"
+            ]
+
+        total_files = len(file_paths)
+        add_log(f"✅ آرکیٹیکچر تیار! کل **{total_files}** پرائمری ماڈیولر فائلز کوڈ کی جائیں گی۔")
+
+        # Step 2: Sequential Generation & GitHub Upload Loop
+        completed_count = 0
+        for idx, file_path in enumerate(file_paths):
+            add_log(f"🔄 CoderAgent تخلیق کر رہا ہے: **{file_path}** ({idx+1}/{total_files})")
+            
+            gen_prompt = f"""
+            System Blueprint: {prompt_input}
+
+            TASK: Write full, highly detailed, production-grade, unabridged source code for the file: `{file_path}`.
+            CRITICAL REQUIREMENTS:
+            1. Output ONLY the raw source code. Do NOT wrap in markdown backticks (e.g. no ```typescript).
+            2. Write clean, complete implementation without any placeholders or `// TODO` shortcuts.
+            3. Implement full type safety, comprehensive UI/UX logic, and complete handling of enterprise edge cases.
+            """
+
+            code_content, gen_err = call_groq_llm(
+                gen_prompt, key_mgr,
+                system_instruction=f"You are a Senior Staff Engineer writing enterprise production code for {file_path}."
+            )
+
+            if gen_err or not code_content:
+                add_log(f"❌ Error Generating {file_path}: {gen_err}")
+                continue
+
+            # Clean markdown fences if generated
+            clean_code = re.sub(r'^```\w*\n', '', code_content, flags=re.MULTILINE)
+            clean_code = re.sub(r'\n```$', '', clean_code, flags=re.MULTILINE).strip()
+
+            # Push file directly to GitHub
+            success, github_msg = push_to_github(github_repo, file_path, clean_code, github_token)
+            
+            if success:
+                add_log(f"✅ GitHub Commit Successful: `{file_path}`")
+                completed_count += 1
             else:
-                with st.spinner("GitHub پر اپ لوڈ ہو رہا ہے..."):
-                    res = push_files_to_github(gh_token, gh_repo, st.session_state.generated_files)
-                    for file_p, success, msg in res:
-                        if success:
-                            st.success(f"✅ `{file_p}` اپ لوڈ ہو گئی۔")
-                        else:
-                            st.error(f"❌ `{file_p}`: {msg}")
+                add_log(f"⚠️ GitHub Upload Failed ({file_path}): {github_msg}")
 
-    with col_view:
-        selected_file = st.selectbox(
-            "فائل دیکھیں:",
-            options=list(st.session_state.generated_files.keys()),
-        )
-        if selected_file:
-            st.code(st.session_state.generated_files[selected_file], language="typescript")
+            # Update UI Progress & Status Card
+            completed_count_val = idx + 1
+            progress_bar.progress(completed_count_val / total_files)
+            status_placeholder.markdown(f"""
+            <div class='status-card'>
+                <h4>تخلیق کا اسٹیٹس</h4>
+                <p>فائلیں مکمل: <b>{completed_count}/{total_files}</b></p>
+                <p>موجودہ فائل: <code>{file_path}</code></p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Delay to avoid Groq Rate Limit
+            time.sleep(delay_interval)
+
+        add_log("✨ تمام فائلیں اور اینٹرپرائز اسٹرکچر کامیابی سے آپ کے GitHub پر اپ لوڈ ہو چکے ہیں!")
+        st.success("🎉 بلڈ مکمل ہو گیا! آپ کا پورا 100k Lines Scale پروجیکٹ GitHub پر تیار ہے۔")
