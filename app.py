@@ -52,11 +52,9 @@ class APIKeyManager:
     def _add_key(self, val):
         if not val:
             return
-        # Handle TOML List / Array
         if isinstance(val, (list, tuple)):
             for item in val:
                 self._add_key(item)
-        # Handle Comma-Separated String or Single String
         elif isinstance(val, str):
             for part in val.split(","):
                 cleaned = part.strip()
@@ -64,12 +62,10 @@ class APIKeyManager:
                     self.keys.append(cleaned)
 
     def load_keys(self):
-        # 1. Check Environment Variables
         for env_key, env_val in os.environ.items():
             if "GROQ_API_KEY" in env_key:
                 self._add_key(env_val)
 
-        # 2. Check Streamlit Secrets safely
         if hasattr(st, "secrets"):
             for sec_key in st.secrets:
                 if "GROQ_API_KEY" in sec_key or "GROQ_KEYS" in sec_key:
@@ -91,16 +87,25 @@ class APIKeyManager:
         return False
 
 # ---------------------------------------------------------
-# Robust Groq Engine (Handles High Output Tokens Without Failing)
+# High-Capacity Infinite Resilience Groq LLM Engine
 # ---------------------------------------------------------
-def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise software architect.", model="llama-3.3-70b-versatile", max_tokens=6000, max_retries=7):
-    for attempt in range(max_retries):
+def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise software architect.", model="llama-3.3-70b-versatile", max_tokens=8000, logger_callback=None):
+    """
+    یہ فنکشن کبھی ٹائم آؤٹ یا لیمیٹ پر فیل نہیں ہوگا۔
+    یہ لامتناہی کوشش (Infinite Adaptive Retries) کرتا رہے گا جب تک کام مکمل نہ ہو۔
+    """
+    attempt = 0
+    while True:
+        attempt += 1
         api_key = key_manager.get_key()
+        
         if not api_key:
             return None, "No GROQ API Key found. Please add keys in sidebar or secrets."
 
         try:
-            client = Groq(api_key=api_key)
+            # Explicit timeout added to prevent thread locking
+            client = Groq(api_key=api_key, timeout=60.0)
+            
             completion = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -110,25 +115,87 @@ def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise
                 temperature=0.1,
                 max_tokens=max_tokens,
             )
-            return completion.choices[0].message.content, None
+            
+            content = completion.choices[0].message.content
+            if content and len(content.strip()) > 0:
+                return content, None
+            else:
+                raise Exception("Empty response received from LLM.")
+
         except Exception as e:
             err_msg = str(e)
-            # If Rate Limit or Auth issue, auto rotate key
-            if "429" in err_msg or "rate_limit" in err_msg.lower() or "401" in err_msg:
-                rotated = key_manager.rotate()
-                wait_time = (attempt + 1) * 6 if rotated else (attempt + 1) * 12
-                time.sleep(wait_time)
+            
+            # Key Rotation or Delay Logic
+            rotated = key_manager.rotate()
+            
+            # Smart Dynamic Pause Calculation
+            if "429" in err_msg or "rate_limit" in err_msg.lower():
+                wait_time = min(attempt * 5, 45) if rotated else min(attempt * 12, 90)
+                if logger_callback:
+                    logger_callback(f"⏳ [Rate Limit / 429] Key Swapped. Waiting {wait_time}s before retry {attempt}...")
+            elif "timeout" in err_msg.lower() or "503" in err_msg or "500" in err_msg:
+                wait_time = min(attempt * 4, 30)
+                if logger_callback:
+                    logger_callback(f"⚠️ [Network Timeout/Server 50x] Retrying in {wait_time}s (Attempt {attempt})...")
             else:
-                key_manager.rotate()
-                time.sleep(5)
+                wait_time = 5
+                if logger_callback:
+                    logger_callback(f"⚠️ [API Warning] {err_msg[:90]}... Retrying in {wait_time}s...")
 
-    return None, "Rate limit or connection timeout on Groq API after multiple key rotations."
+            time.sleep(wait_time)
+
+
+def generate_large_file_code(prompt_input, file_path, key_mgr, logger_callback):
+    """
+    بہت بڑے کوڈ (1,000+ لائنز) کو بغیر کٹے یا بغیر سائز کی حد کے مکمل جنریٹ کرتا ہے۔
+    """
+    system_instruction = f"You are a Principal Software Engineer implementing complete, production-grade code for {file_path}."
+    
+    base_prompt = f"""
+    System Master Blueprint:
+    {prompt_input}
+
+    TASK:
+    Write COMPLETE, INDUSTRIAL-GRADE, FULLY FUNCTIONAL source code for: `{file_path}`.
+
+    STRICT CRITICAL RULES:
+    - Write FULL implementations. Absolutely ZERO placeholders, NO '// TODO', NO cuts.
+    - Write all interfaces, imports, helper utilities, and models completely.
+    - Output RAW executable code inside markdown blocks.
+    """
+
+    code_accumulated, err = call_groq_llm(
+        base_prompt, key_mgr, 
+        system_instruction=system_instruction, 
+        max_tokens=8000, 
+        logger_callback=logger_callback
+    )
+
+    if err or not code_accumulated:
+        return None, err
+
+    # Check if response was cut prematurely (Max Tokens Hit)
+    # continuation logic for massive files
+    if len(code_accumulated) > 15000 and not code_accumulated.strip().endswith(("}", ";", "export default", "```")):
+        logger_callback(f"🧩 File `{file_path}` seems extended. Requesting continuation chunk...")
+        continuation_prompt = f"Continue EXACTLY where you left off for `{file_path}` without repeating previous code:\n\n... {code_accumulated[-500:]}"
+        
+        chunk, chunk_err = call_groq_llm(
+            continuation_prompt, key_mgr, 
+            system_instruction=system_instruction, 
+            max_tokens=6000, 
+            logger_callback=logger_callback
+        )
+        if chunk and not chunk_err:
+            code_accumulated += "\n" + chunk
+
+    return code_accumulated, None
 
 # ---------------------------------------------------------
-# GitHub API Push Engine
+# Fault-Tolerant GitHub API Push Engine
 # ---------------------------------------------------------
 def push_to_github(repo, path, content, token, commit_message="feat: enterprise multi-module auto-commit"):
-    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    url = f"[https://api.github.com/repos/](https://api.github.com/repos/){repo}/contents/{path}"
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3+json",
@@ -136,14 +203,22 @@ def push_to_github(repo, path, content, token, commit_message="feat: enterprise 
     }
 
     sha = None
-    try:
-        req = urllib.request.Request(url, headers=headers, method='GET')
-        with urllib.request.urlopen(req) as response:
-            res_data = json.loads(response.read().decode('utf-8'))
-            sha = res_data.get('sha')
-    except Exception:
-        pass
+    # 1. Fetch SHA if exists
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers=headers, method='GET')
+            with urllib.request.urlopen(req, timeout=30) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                sha = res_data.get('sha')
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                sha = None # File doesn't exist yet
+                break
+        except Exception:
+            time.sleep(2)
 
+    # 2. Upload Content
     encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
     payload = {
         "message": commit_message,
@@ -152,25 +227,27 @@ def push_to_github(repo, path, content, token, commit_message="feat: enterprise 
     if sha:
         payload["sha"] = sha
 
-    try:
-        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='PUT')
-        with urllib.request.urlopen(req) as response:
-            return True, "Success"
-    except Exception as e:
-        return False, str(e)
+    for attempt in range(5):
+        try:
+            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='PUT')
+            with urllib.request.urlopen(req, timeout=45) as response:
+                return True, "Success"
+        except Exception as e:
+            if attempt == 4:
+                return False, str(e)
+            time.sleep(3 * (attempt + 1))
 
 # ---------------------------------------------------------
 # User Interface Layout
 # ---------------------------------------------------------
-st.title("⚡ DevPulse Studio Enterprise Engine")
-st.caption("Full Monorepo Architecture & Industrial-Grade Code Generator")
+st.title("⚡ DevPulse Studio Enterprise Engine (Unstoppable Build Edition)")
+st.caption("Full Monorepo Architecture & Industrial-Grade Fault-Tolerant Code Generator")
 
 key_mgr = APIKeyManager()
 
 with st.sidebar:
     st.header("⚙️ Configuration")
     
-    # Manual Key Input for Multiple Groq Keys
     user_keys_input = st.text_area(
         "Groq API Keys (کاما سے الگ کر کے درج کریں):",
         placeholder="gsk_key1, gsk_key2, gsk_key3",
@@ -190,7 +267,7 @@ with st.sidebar:
     github_repo = st.text_input("Target Repository (username/repo)", value=env_repo or secret_repo)
     
     st.markdown("---")
-    delay_interval = st.slider("Rate-Limit Delay (Seconds)", min_value=5, max_value=35, value=12)
+    delay_interval = st.slider("Rate-Limit Safety Pause (Seconds)", min_value=2, max_value=30, value=6)
 
 prompt_input = st.text_area(
     "پرامپٹ درج کریں (Master Enterprise Blueprint Prompt):",
@@ -243,7 +320,8 @@ if st.button("🚀 Enterprise Build شروع کریں"):
         arch_details, err = call_groq_llm(
             arch_plan_prompt, key_mgr,
             system_instruction="You are a Chief Enterprise Software Architect.",
-            max_tokens=2500
+            max_tokens=2500,
+            logger_callback=add_log
         )
 
         if arch_details:
@@ -256,7 +334,7 @@ if st.button("🚀 Enterprise Build شروع کریں"):
         extracted_from_prompt = re.findall(r'[\w\/\.\-]+\.(?:prisma|json|js|jsx|css|ts|tsx|env|example)', prompt_input)
         file_paths = list(set(extracted_from_prompt))
 
-        # Backup Fallback Architecture List
+        # Fallback Architecture List if non extracted
         if not file_paths:
             file_paths = [
                 "prisma/schema.prisma", "package.json", "tailwind.config.js", "src/app/globals.css",
@@ -274,34 +352,18 @@ if st.button("🚀 Enterprise Build شروع کریں"):
             ]
 
         total_files = len(file_paths)
-        add_log(f"🚀 کل **{total_files}** فائلز کی مکمل جنریشن اور GitHub پر پش کا عمل شروع ہو رہا ہے۔")
+        add_log(f"🚀 کل **{total_files}** فائلز کی غیر متزلزل جنریشن اور GitHub پر پش کا عمل شروع ہو رہا ہے۔")
 
         completed_count = 0
         for idx, file_path in enumerate(file_paths):
             add_log(f"🔄 CoderAgent جنریٹ کر رہا ہے: **{file_path}** ({idx+1}/{total_files})")
             
-            gen_prompt = f"""
-            System Master Prompt:
-            {prompt_input}
-
-            TASK:
-            Write COMPLETE, PRODUCTION-READY, FULLY FUNCTIONAL source code for: `{file_path}`.
-
-            STRICT INSTRUCTIONS:
-            - Write full implementations. DO NOT leave placeholders, TODOs, or cut off functions.
-            - Write all typescript interfaces, imports, and component elements completely.
-            - Output raw code only.
-            """
-
-            code_content, gen_err = call_groq_llm(
-                gen_prompt, key_mgr,
-                system_instruction=f"You are a Principal Software Engineer implementing complete code for {file_path}.",
-                max_tokens=6000
+            code_content, gen_err = generate_large_file_code(
+                prompt_input, file_path, key_mgr, logger_callback=add_log
             )
 
             if gen_err or not code_content:
                 add_log(f"❌ Error Generating {file_path}: {gen_err}")
-                time.sleep(10)
                 continue
 
             # Strip markdown formatting cleanly
@@ -325,7 +387,7 @@ if st.button("🚀 Enterprise Build شروع کریں"):
             </div>
             """, unsafe_allow_html=True)
 
-            # Mandatory delay between requests to keep Groq stable
+            # Safety delay between successfully processed files
             time.sleep(delay_interval)
 
         add_log("✨ بلڈ کا پروسیس کامیابی سے مکمل ہو چکا ہے!")
