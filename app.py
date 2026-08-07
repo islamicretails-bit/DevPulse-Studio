@@ -12,7 +12,7 @@ from groq import Groq
 # Page Configuration & UI Theme
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="DevPulse Studio Enterprise Pro | Unstoppable Engine",
+    page_title="DevPulse Studio Enterprise Engine",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -41,7 +41,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# API Key Manager Engine (Auto Rotation)
+# API Key Manager Engine (Auto Key Rotation)
 # ---------------------------------------------------------
 class APIKeyManager:
     def __init__(self):
@@ -87,13 +87,12 @@ class APIKeyManager:
         return False
 
 # ---------------------------------------------------------
-# Multi-Model Fallback & Resilience LLM Engine
+# Verified Active Groq Models & Resilience Engine
 # ---------------------------------------------------------
-# Models prioritized by intelligence vs rate limit headroom
 AVAILABLE_MODELS = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768"
+    "llama3-70b-8192"
 ]
 
 def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise software architect.", max_tokens=6000, logger_callback=None):
@@ -131,18 +130,22 @@ def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise
             err_msg = str(e)
             rotated = key_manager.rotate()
             
-            # Switch Model on Rate Limits or Repeated Attempts
+            # Switch Model on Rate Limit (429)
             if "429" in err_msg or "rate_limit" in err_msg.lower():
-                # Swap model if we hit rate limits heavily
-                if attempt % 2 == 0:
-                    model_index = (model_index + 1) % len(AVAILABLE_MODELS)
-                    if logger_callback:
-                        logger_callback(f"🔄 Swapping Model to `{AVAILABLE_MODELS[model_index % len(AVAILABLE_MODELS)]}` to bypass rate limit...")
+                model_index = (model_index + 1) % len(AVAILABLE_MODELS)
+                next_model = AVAILABLE_MODELS[model_index]
+                wait_time = min(attempt * 4, 25) if rotated else min(attempt * 8, 45)
                 
-                wait_time = min(attempt * 4, 30) if rotated else min(attempt * 8, 45)
                 if logger_callback:
-                    logger_callback(f"⏳ [Rate Limit / 429] Waiting {wait_time}s (Attempt {attempt})...")
+                    logger_callback(f"⏳ [Rate Limit / 429] Swapped Key & Model -> `{next_model}`. Waiting {wait_time}s...")
             
+            # Instantly handle bad request / deprecated model (400)
+            elif "400" in err_msg or "model" in err_msg.lower():
+                model_index = (model_index + 1) % len(AVAILABLE_MODELS)
+                if logger_callback:
+                    logger_callback(f"⚠️ [Model Alert 400] Switching Model to `{AVAILABLE_MODELS[model_index]}`...")
+                wait_time = 2
+
             elif "timeout" in err_msg.lower() or "503" in err_msg:
                 wait_time = min(attempt * 3, 20)
                 if logger_callback:
@@ -181,9 +184,9 @@ def generate_large_file_code(prompt_input, file_path, key_mgr, logger_callback):
     if err or not code_accumulated:
         return None, err
 
-    # Smart Continuation Check
+    # Smart Continuation for Long Code Chunks
     if len(code_accumulated) > 12000 and not code_accumulated.strip().endswith(("}", ";", "export default", "```")):
-        logger_callback(f"🧩 File `{file_path}` extended response required. Requesting continuation chunk...")
+        logger_callback(f"🧩 Extended code required for `{file_path}`. Requesting continuation chunk...")
         continuation_prompt = f"Continue EXACTLY where you left off for `{file_path}` without repeating previous code:\n\n... {code_accumulated[-400:]}"
         
         chunk, chunk_err = call_groq_llm(
@@ -198,7 +201,7 @@ def generate_large_file_code(prompt_input, file_path, key_mgr, logger_callback):
     return code_accumulated, None
 
 # ---------------------------------------------------------
-# GitHub API Push Engine
+# GitHub Push Engine
 # ---------------------------------------------------------
 def push_to_github(repo, path, content, token, commit_message="feat: enterprise auto-commit"):
     url = f"[https://api.github.com/repos/](https://api.github.com/repos/){repo}/contents/{path}"
@@ -242,7 +245,7 @@ def push_to_github(repo, path, content, token, commit_message="feat: enterprise 
             time.sleep(3)
 
 # ---------------------------------------------------------
-# User Interface Layout
+# User Interface
 # ---------------------------------------------------------
 st.title("⚡ DevPulse Studio Enterprise Engine")
 st.caption("Auto-Dynamic Multi-Model Engine (Infinite Resilience)")
@@ -263,13 +266,13 @@ with st.sidebar:
     active_keys_count = len(key_mgr.keys)
     st.info(f"🔑 Active Groq Keys Detected: **{active_keys_count}**")
 
-    # Auto-Calculate Dynamic Delay based on API Key availability
+    # Dynamic delay calculation based on available keys
     if active_keys_count > 3:
         recommended_delay = 3
     elif active_keys_count == 2 or active_keys_count == 3:
         recommended_delay = 6
     else:
-        recommended_delay = 12
+        recommended_delay = 10
 
     st.success(f"🎯 Dynamic Delay Set To: **{recommended_delay}s per file**")
     
@@ -317,7 +320,7 @@ if st.button("🚀 Enterprise Build شروع کریں"):
 
         add_log("🤖 ArchitectAgent ایکٹیویٹ ہو رہا ہے۔..")
 
-        # Compact Overview Call
+        # Architectural Overview Generation
         arch_plan_prompt = f"Provide a concise summary (Tech Stack, DB, Core Features) for:\n{prompt_input[:1500]}"
         arch_placeholder.info("⏳ ArchitectAgent کا جائزہ بن رہا ہے...")
         
@@ -332,10 +335,11 @@ if st.button("🚀 Enterprise Build شروع کریں"):
             arch_placeholder.markdown(arch_details)
             add_log("✅ آرکیٹیکچر تیار ہو گیا۔")
 
-        # Extract File Structure
+        # Dynamic File Extraction from Prompt
         extracted_from_prompt = re.findall(r'[\w\/\.\-]+\.(?:prisma|json|js|jsx|css|ts|tsx|env|example)', prompt_input)
         file_paths = list(set(extracted_from_prompt))
 
+        # Default File Structure if prompt didn't contain explicit paths
         if not file_paths:
             file_paths = [
                 "prisma/schema.prisma", "package.json", "tailwind.config.js", "src/app/globals.css",
@@ -387,7 +391,7 @@ if st.button("🚀 Enterprise Build شروع کریں"):
             </div>
             """, unsafe_allow_html=True)
 
-            # Auto Dynamic Delay Application
+            # Apply Dynamic Rate-Limit Safety Delay
             time.sleep(recommended_delay)
 
         add_log("✨ بلڈ پروسیس کامیابی سے مکمل ہو چکا ہے!")
