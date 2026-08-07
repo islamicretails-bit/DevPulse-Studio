@@ -8,11 +8,11 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 
-# Load local environment variables if available
+# Local environment variables load کریں
 load_dotenv()
 
 # ==========================================
-# 1. Page Configuration & UI Theme Setup
+# 1. Page Configuration & UI Setup
 # ==========================================
 st.set_page_config(
     page_title="DevPulse Studio Pro",
@@ -21,7 +21,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom Styling for Dark UI & Scannability
 st.markdown(
     """
     <style>
@@ -51,20 +50,18 @@ st.markdown(
 )
 
 # ==========================================
-# 2. API Key Management & Rotation Pool
+# 2. Multi-Key Pool Collection
 # ==========================================
 def collect_api_keys():
-    """Retrieves API keys from Streamlit Secrets or Environment Variables."""
     groq_keys = []
     openai_keys = []
 
-    # Check Streamlit Secrets first, then OS environ
     def get_val(key_name):
         if hasattr(st, "secrets") and key_name in st.secrets:
             return st.secrets[key_name]
         return os.getenv(key_name)
 
-    # Collect Groq Keys
+    # Groq Keys
     i = 1
     while True:
         k = get_val(f"GROQ_API_KEY_{i}")
@@ -76,7 +73,7 @@ def collect_api_keys():
         else:
             break
 
-    # Collect OpenAI Keys
+    # OpenAI Keys
     i = 1
     while True:
         k = get_val(f"OPENAI_API_KEY_{i}")
@@ -93,18 +90,92 @@ def collect_api_keys():
 
 groq_keys, openai_keys = collect_api_keys()
 
-# Session State Initialization
+# Session States
 if "is_building" not in st.session_state:
     st.session_state.is_building = False
 if "is_paused" not in st.session_state:
     st.session_state.is_paused = False
 if "generated_files" not in st.session_state:
     st.session_state.generated_files = {}
-if "execution_logs" not in st.session_state:
-    st.session_state.execution_logs = []
+if "key_index" not in st.session_state:
+    st.session_state.key_index = 0
 
 # ==========================================
-# 3. Sidebar Configuration & Status
+# 3. LLM API Call Function
+# ==========================================
+def call_llm_api(system_prompt: str, user_prompt: str) -> str:
+    all_keys = groq_keys + openai_keys
+    if not all_keys:
+        raise ValueError("No API keys found!")
+
+    current_key = all_keys[st.session_state.key_index % len(all_keys)]
+    st.session_state.key_index += 1
+
+    headers = {
+        "Authorization": f"Bearer {current_key}",
+        "Content-Type": "application/json",
+    }
+
+    if current_key.startswith("gsk_"):
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        model = "llama-3.3-70b-versatile"
+    else:
+        url = "https://api.openai.com/v1/chat/completions"
+        model = "gpt-4o-mini"
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.2,
+    }
+
+    response = requests.post(url, headers=headers, json=payload, timeout=60)
+    if response.status_code == 200:
+        return response.json()["choices"][0]["message"]["content"]
+    else:
+        raise RuntimeError(f"API Error ({response.status_code}): {response.text}")
+
+# ==========================================
+# 4. GitHub Push Function (GitHub Agent)
+# ==========================================
+def push_files_to_github(token, repo_name, files_dict, commit_message="Add AI Generated Code"):
+    """GitHub API کے ذریعے خودکار فائلیں اپ لوڈ کرنے کا فنکشن"""
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    results = []
+    for file_path, content in files_dict.items():
+        url = f"https://api.github.com/repos/{repo_name}/contents/{file_path}"
+        
+        # چیک کریں کہ کیا فائل پہلے سے موجود ہے (Sha حاصل کرنے کے لیے)
+        get_res = requests.get(url, headers=headers)
+        sha = get_res.json().get("sha") if get_res.status_code == 200 else None
+
+        import base64
+        encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+
+        data = {
+            "message": commit_message,
+            "content": encoded_content,
+        }
+        if sha:
+            data["sha"] = sha
+
+        put_res = requests.put(url, headers=headers, json=data)
+        if put_res.status_code in [200, 201]:
+            results.append((file_path, True, "Uploaded"))
+        else:
+            results.append((file_path, False, put_res.json().get("message", "Failed")))
+
+    return results
+
+# ==========================================
+# 5. Sidebar Configuration & GitHub Inputs
 # ==========================================
 with st.sidebar:
     st.title("⚡ DevPulse Studio Pro")
@@ -112,39 +183,40 @@ with st.sidebar:
     st.divider()
 
     st.subheader("🔑 API Key Status")
-    st.write(f"**Groq Key Pool:** `{len(groq_keys)} Active Keys`")
-    st.write(f"**OpenAI Key Pool:** `{len(openai_keys)} Active Keys`")
-
-    if not groq_keys and not openai_keys:
-        st.error(
-            "⚠️ کوئی بھی API Key نہیں ملی! Streamlit Cloud کی Settings میں Secrets سیٹ کریں۔"
-        )
+    st.write(f"**Groq Keys:** `{len(groq_keys)} Active`")
+    st.write(f"**OpenAI Keys:** `{len(openai_keys)} Active`")
 
     st.divider()
-    st.subheader("⚙️ Runtime Settings")
-    max_workers = st.slider("Parallel Workers", min_value=1, max_value=5, value=3)
-    auto_test = st.checkbox("Enable Automated Unit Tests (TesterAgent)", value=True)
-
-    st.divider()
-    st.info(
-        "💡 **ٹیپ:** یہ سسٹم ریئل ٹائم میں فائلیں جنریٹ کرتا ہے اور مکمل بلڈ تیار ہونے پر Zip بھی فراہم کرتا ہے۔"
+    st.subheader("🐙 GitHub Integration")
+    gh_token = st.text_input(
+        "GitHub Personal Access Token:",
+        type="password",
+        placeholder="ghp_xxxxxxxxxxxx",
+        value=os.getenv("GITHUB_TOKEN", ""),
+    )
+    gh_repo = st.text_input(
+        "Repository Name (username/repo):",
+        placeholder="username/my-project",
+        value=os.getenv("GITHUB_REPO", ""),
     )
 
+    auto_push = st.checkbox("Auto Push to GitHub after Build", value=False)
+
+    st.divider()
+    auto_test = st.checkbox("Enable Automated Unit Tests", value=True)
+
 # ==========================================
-# 4. Main App Layout & Controls
+# 6. Main App Controls
 # ==========================================
 st.title("🚀 Multi-Agent Code Generation Dashboard")
-st.write(
-    "اپنے پروجیکٹ کی تفصیل (Prompt) درج کریں اور ملٹی ایجنٹ سسٹم کو مکمل پروجیکٹ تیار کرنے دیں۔"
-)
+st.write("پرامپٹ درج کریں اور ملٹی ایجنٹ سسٹم کو کوڈ تیار کرنے دیں۔")
 
-# Top Action Control Bar
 col_prompt, col_action = st.columns([3, 1])
 
 with col_prompt:
     user_prompt = st.text_area(
         "پروجیکٹ کی تفصیل درج کریں:",
-        placeholder="مثال: ایک مکمل Next.js 14 ای کامرس ڈیش بورڈ بنائیں جس میں TailWind CSS اور PostgreSQL Prisma کی فائلز ہوں۔",
+        placeholder="مثال: ایک Express.js API سرور بنائیں جس میں Auth Controller ہو۔",
         height=130,
         disabled=st.session_state.is_building,
     )
@@ -152,9 +224,7 @@ with col_prompt:
 with col_action:
     st.write("### ")
     if not st.session_state.is_building:
-        if st.button(
-            "🚀 بلڈ شروع کریں", use_container_width=True, type="primary"
-        ):
+        if st.button("🚀 بلڈ شروع کریں", use_container_width=True, type="primary"):
             if not user_prompt:
                 st.warning("براہ کرم پرامپٹ فراہم کریں۔")
             elif not groq_keys and not openai_keys:
@@ -163,7 +233,6 @@ with col_action:
                 st.session_state.is_building = True
                 st.session_state.is_paused = False
                 st.session_state.generated_files = {}
-                st.session_state.execution_logs = []
                 st.rerun()
     else:
         col_pause, col_stop = st.columns(2)
@@ -181,133 +250,141 @@ with col_action:
                 st.rerun()
 
 # ==========================================
-# 5. Pipeline Simulation Engine (LLM Executor)
+# 7. Execution Pipeline
 # ==========================================
 if st.session_state.is_building:
     st.divider()
 
-    # Progress Metrics
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    col_m1, col_m2, col_m3 = st.columns(3)
     metric_status = col_m1.empty()
     metric_files = col_m2.empty()
     metric_agent = col_m3.empty()
-    metric_tokens = col_m4.empty()
 
     progress_bar = st.progress(0)
     log_container = st.container()
 
-    # Simulated Orchestration Pipeline (Architect -> Coder -> Tester)
-    # real production logic hooks here
-
-    sample_planned_files = [
-        ("package.json", "Project configurations and dependencies"),
-        ("src/index.ts", "Main server entry point"),
-        ("src/config/db.ts", "Database connection logic"),
-        ("src/controllers/userController.ts", "User API routes controller"),
-        ("src/services/userService.ts", "User business logic layer"),
-    ]
-
-    total_files = len(sample_planned_files)
-
     with log_container:
-        st.subheader("📋 لائیو ایگزیکیوشن لاگز (Live Pipeline)")
+        st.subheader("📋 لائیو ایگزیکیوشن لاگز")
 
-        # Stage 1: Architect Agent
         metric_status.metric("اسٹیٹس", "ایکٹیو ⚡")
         metric_agent.metric("موجودہ ایجنٹ", "ArchitectAgent 📐")
 
-        st.markdown(
-            """<div class="agent-card"><b>[ArchitectAgent]</b> پروجیکٹ کا بلیو پرنٹ اور فائل کا ڈھانچہ تیار کر رہا ہے...</div>""",
-            unsafe_allow_html=True,
-        )
-        time.sleep(1.5)
+        architect_system_prompt = """You are an expert Software Architect.
+Output ONLY valid JSON:
+{
+  "projectName": "string",
+  "files": [
+    { "filePath": "src/index.ts", "description": "Main entry point" }
+  ]
+}"""
 
-        # Stage 2 & 3: Coder & Tester Agents
+        try:
+            arch_response = call_llm_api(architect_system_prompt, user_prompt)
+            clean_json = arch_response.replace("```json", "").replace("```", "").strip()
+            blueprint = json.loads(clean_json)
+            planned_files = blueprint.get("files", [])
+            total_files = len(planned_files)
+        except Exception as e:
+            st.error(f"Architect Error: {str(e)}")
+            planned_files = []
+            total_files = 0
+
         completed_count = 0
-        total_tokens = 0
 
-        for idx, (filePath, desc) in enumerate(sample_planned_files):
-            # Check for Pause State
+        for idx, file_info in enumerate(planned_files):
             while st.session_state.is_paused:
                 metric_status.metric("اسٹیٹس", "پاز شدہ ⏸️")
                 time.sleep(1)
+
+            filePath = file_info.get("filePath", f"file_{idx}.ts")
+            fileDesc = file_info.get("description", "Code file")
 
             metric_status.metric("اسٹیٹس", "ایکٹیو ⚡")
             metric_agent.metric("موجودہ ایجنٹ", "CoderAgent 💻")
             metric_files.metric("فائلیں مکمل", f"{completed_count} / {total_files}")
 
-            st.write(f"🔄 **تخلیق جاری ہے:** `{filePath}` - *{desc}*")
+            st.write(f"🔄 **تخلیق جاری:** `{filePath}`")
 
-            # Simulated File Code Generation
-            time.sleep(1.2)
-            generated_code = (
-                f"// Generated by DevPulse Studio Pro\n// File: {filePath}\n\n"
-                f"export const config = {{\n  path: '{filePath}',\n  status: 'active'\n}};\n"
-            )
+            coder_system_prompt = f"Write production code for {filePath}. Purpose: {fileDesc}. Output ONLY code."
 
-            st.session_state.generated_files[filePath] = generated_code
-            total_tokens += 450
-            completed_count += 1
+            try:
+                code_content = call_llm_api(coder_system_prompt, user_prompt)
+                clean_code = code_content.replace("```typescript", "").replace("```javascript", "").replace("```", "").strip()
+                st.session_state.generated_files[filePath] = clean_code
+                completed_count += 1
+            except Exception as e:
+                st.error(f"Failed {filePath}: {str(e)}")
 
-            # Tester Agent Phase
-            if auto_test:
+            if auto_test and filePath in st.session_state.generated_files:
                 metric_agent.metric("موجودہ ایجنٹ", "TesterAgent 🧪")
-                st.caption(f"🧪 Unit test auto-generated for `{filePath}`")
-                test_path = filePath.replace(".ts", ".test.ts").replace(
-                    ".js", ".test.js"
-                )
-                test_code = f"describe('{filePath}', () => {{\n  it('should pass sanity test', () => {{\n    expect(true).toBe(true);\n  }});\n}});\n"
-                st.session_state.generated_files[test_path] = test_code
-                time.sleep(0.8)
+                try:
+                    test_code = call_llm_api("Generate unit tests.", st.session_state.generated_files[filePath])
+                    clean_test = test_code.replace("```typescript", "").replace("```javascript", "").replace("```", "").strip()
+                    test_path = filePath.replace(".ts", ".test.ts")
+                    st.session_state.generated_files[test_path] = clean_test
+                except Exception:
+                    pass
 
-            # Update Metrics
-            metric_tokens.metric("ٹوکنز", f"{total_tokens:,}")
-            progress = int((completed_count / total_files) * 100)
+            progress = int((completed_count / total_files) * 100) if total_files > 0 else 100
             progress_bar.progress(progress)
 
-        # Completion State
         st.session_state.is_building = False
         metric_status.metric("اسٹیٹس", "مکمل 🟢")
-        metric_agent.metric("موجودہ ایجنٹ", "Idle")
-        st.success("✨ تمام فائلیں اور ٹیسٹ کامیابی سے تیار ہو چکے ہیں!")
+        st.success("✨ کوڈ کی تخلیق مکمل ہو گئی!")
+
+        # Auto Push to GitHub if Enabled
+        if auto_push and gh_token and gh_repo:
+            st.info("🐙 GitHub پر فائلیں اپ لوڈ ہو رہی ہیں...")
+            res = push_files_to_github(gh_token, gh_repo, st.session_state.generated_files)
+            for file_p, success, msg in res:
+                if success:
+                    st.caption(f"✅ `{file_p}` -> GitHub")
+                else:
+                    st.error(f"❌ `{file_p}` -> {msg}")
 
 # ==========================================
-# 6. Generated Files Explorer & Zip Download
+# 8. File Explorer & Manual GitHub Push
 # ==========================================
 if st.session_state.generated_files:
     st.divider()
-    st.subheader("📂 تیار شدہ فائلیں (Generated Files)")
+    st.subheader("📂 تیار شدہ فائلیں")
 
-    col_view, col_zip = st.columns([3, 1])
+    col_view, col_actions = st.columns([2, 1])
 
-    with col_zip:
-        # Create In-Memory Zip File
+    with col_actions:
+        # Zip Download Button
         zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(
-            zip_buffer, "w", zipfile.ZIP_DEFLATED
-        ) as zip_file:
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             for file_path, code_content in st.session_state.generated_files.items():
                 zip_file.writestr(file_path, code_content)
-
         zip_buffer.seek(0)
 
         st.download_button(
-            label="📦 تمام فائلیں Zip ڈاؤن لوڈ کریں",
+            label="📦 Zip ڈاؤن لوڈ کریں",
             data=zip_buffer,
-            file_name="devpulse_project.zip",
+            file_name="project.zip",
             mime="application/zip",
             use_container_width=True,
-            type="primary",
         )
+
+        st.divider()
+        st.write("### 🐙 Manually Push to GitHub")
+        if st.button("🚀 Push All Files to GitHub", use_container_width=True, type="primary"):
+            if not gh_token or not gh_repo:
+                st.error("براہ کرم سائیڈ بار میں GitHub Token اور Repository کا نام درج کریں۔")
+            else:
+                with st.spinner("GitHub پر اپ لوڈ ہو رہا ہے..."):
+                    res = push_files_to_github(gh_token, gh_repo, st.session_state.generated_files)
+                    for file_p, success, msg in res:
+                        if success:
+                            st.success(f"✅ `{file_p}` اپ لوڈ ہو گئی۔")
+                        else:
+                            st.error(f"❌ `{file_p}`: {msg}")
 
     with col_view:
         selected_file = st.selectbox(
-            "فائل کا انتخاب کریں اور کوڈ دیکھیں:",
+            "فائل دیکھیں:",
             options=list(st.session_state.generated_files.keys()),
         )
-
         if selected_file:
-            st.code(
-                st.session_state.generated_files[selected_file],
-                language="typescript",
-            )
+            st.code(st.session_state.generated_files[selected_file], language="typescript")
