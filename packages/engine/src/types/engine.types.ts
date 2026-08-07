@@ -162,3 +162,24 @@ export interface EngineEvent {
 }
 
 export type EngineEventListener = (event: EngineEvent) => void;
+// 1. نئے ایونٹ کی اقسام شامل کریں
+export type EngineEventType =
+  | 'ARCHITECT_STARTED'
+  | 'ARCHITECT_COMPLETED'
+  | 'TESTER_STARTED'      // 👈 نیا ایونٹ: Tester Agent
+  | 'TESTER_COMPLETED'    // 👈 نیا ایونٹ
+  | 'FILE_SUCCESS'
+  | 'FILE_ERROR';
+
+// 2. نئے ایجنٹ کے انپٹ کا انٹرفیس بنائیں
+export interface TesterAgentInput {
+  filePath: string;
+  codeContent: string;
+}
+
+// 3. ایجنٹ کے آؤٹ پٹ کی ساخت متعین کریں
+export interface TesterOutput {
+  testCode: string;
+  testFilePath: string;
+  passedSyntaxCheck: boolean;
+}
