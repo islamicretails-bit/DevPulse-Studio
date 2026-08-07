@@ -41,27 +41,43 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# API Key Manager Engine (Auto Rotation)
+# API Key Manager Engine (Bulletproof Auto Rotation)
 # ---------------------------------------------------------
 class APIKeyManager:
     def __init__(self):
         self.keys = []
-        # Check Environment Variables
-        for k in os.environ:
-            if k.startswith("GROQ_API_KEY"):
-                val = os.environ.get(k)
-                if val and val.strip() and val.strip() not in self.keys:
-                    self.keys.append(val.strip())
-        
-        # Check Streamlit Secrets
-        if hasattr(st, "secrets"):
-            for k in st.secrets:
-                if "GROQ_API_KEY" in k:
-                    val = st.secrets[k]
-                    if val and val.strip() and val.strip() not in self.keys:
-                        self.keys.append(val.strip())
-                        
         self.current_index = 0
+        self.load_keys()
+
+    def _add_key(self, val):
+        if not val:
+            return
+        # Handle TOML List / Array
+        if isinstance(val, (list, tuple)):
+            for item in val:
+                self._add_key(item)
+        # Handle Comma-Separated String or Single String
+        elif isinstance(val, str):
+            for part in val.split(","):
+                cleaned = part.strip()
+                if cleaned and cleaned not in self.keys:
+                    self.keys.append(cleaned)
+
+    def load_keys(self):
+        # 1. Check Environment Variables
+        for env_key, env_val in os.environ.items():
+            if "GROQ_API_KEY" in env_key:
+                self._add_key(env_val)
+
+        # 2. Check Streamlit Secrets safely
+        if hasattr(st, "secrets"):
+            for sec_key in st.secrets:
+                if "GROQ_API_KEY" in sec_key or "GROQ_KEYS" in sec_key:
+                    self._add_key(st.secrets[sec_key])
+
+    def add_manual_keys(self, user_str):
+        if user_str:
+            self._add_key(user_str)
 
     def get_key(self):
         if not self.keys:
@@ -81,7 +97,7 @@ def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise
     for attempt in range(max_retries):
         api_key = key_manager.get_key()
         if not api_key:
-            return None, "No GROQ API Key found."
+            return None, "No GROQ API Key found. Please add keys in sidebar or secrets."
 
         try:
             client = Groq(api_key=api_key)
@@ -97,15 +113,16 @@ def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise
             return completion.choices[0].message.content, None
         except Exception as e:
             err_msg = str(e)
-            if "429" in err_msg or "rate_limit" in err_msg.lower():
-                key_manager.rotate()
-                # Progressive Cooldown
-                wait_time = (attempt + 1) * 10
+            # If Rate Limit or Auth issue, auto rotate key
+            if "429" in err_msg or "rate_limit" in err_msg.lower() or "401" in err_msg:
+                rotated = key_manager.rotate()
+                wait_time = (attempt + 1) * 6 if rotated else (attempt + 1) * 12
                 time.sleep(wait_time)
             else:
+                key_manager.rotate()
                 time.sleep(5)
 
-    return None, "Rate limit or connection timeout on Groq API."
+    return None, "Rate limit or connection timeout on Groq API after multiple key rotations."
 
 # ---------------------------------------------------------
 # GitHub API Push Engine
@@ -152,7 +169,17 @@ key_mgr = APIKeyManager()
 
 with st.sidebar:
     st.header("⚙️ Configuration")
-    st.info(f"🔑 Detected Groq Keys: **{len(key_mgr.keys)}**")
+    
+    # Manual Key Input for Multiple Groq Keys
+    user_keys_input = st.text_area(
+        "Groq API Keys (کاما سے الگ کر کے درج کریں):",
+        placeholder="gsk_key1, gsk_key2, gsk_key3",
+        help="Secrets کے علاوہ آپ یہاں بھی دستی کیز درج کر سکتے ہیں۔"
+    )
+    if user_keys_input:
+        key_mgr.add_manual_keys(user_keys_input)
+
+    st.info(f"🔑 Active Groq Keys Detected: **{len(key_mgr.keys)}**")
     
     env_token = os.environ.get("GITHUB_TOKEN", "")
     secret_token = st.secrets.get("GITHUB_TOKEN", "") if hasattr(st, "secrets") else ""
@@ -163,7 +190,7 @@ with st.sidebar:
     github_repo = st.text_input("Target Repository (username/repo)", value=env_repo or secret_repo)
     
     st.markdown("---")
-    delay_interval = st.slider("Rate-Limit Delay (Seconds)", min_value=10, max_value=35, value=18)
+    delay_interval = st.slider("Rate-Limit Delay (Seconds)", min_value=5, max_value=35, value=12)
 
 prompt_input = st.text_area(
     "پرامپٹ درج کریں (Master Enterprise Blueprint Prompt):",
@@ -177,7 +204,7 @@ if st.button("🚀 Enterprise Build شروع کریں"):
     elif not github_token or not github_repo:
         st.error("GitHub Token اور Repository لازمی ہیں۔")
     elif len(key_mgr.keys) == 0:
-        st.error("کوئی GROQ API Key نہیں ملی! Streamlit Secrets یا Environment Variables چیک کریں۔")
+        st.error("کوئی GROQ API Key نہیں ملی! Sidebar، Streamlit Secrets یا Environment Variables چیک کریں۔")
     else:
         st.markdown("---")
         
@@ -274,7 +301,7 @@ if st.button("🚀 Enterprise Build شروع کریں"):
 
             if gen_err or not code_content:
                 add_log(f"❌ Error Generating {file_path}: {gen_err}")
-                time.sleep(12)  # Extended Delay on Rate Failure
+                time.sleep(10)
                 continue
 
             # Strip markdown formatting cleanly
