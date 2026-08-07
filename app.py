@@ -199,6 +199,11 @@ if st.button("🚀 100k Lines Enterprise Build شروع کریں"):
         st.error("کوئی Groq API Key نہیں ملی! Streamlit Secrets یا Environment میں GROQ_API_KEY_1 وغیرہ شامل کریں۔")
     else:
         st.markdown("---")
+        
+        # Expandable Section for Detailed Architecture Blueprint
+        arch_expander = st.expander("🏗️ پروجیکٹ کا آرکیٹیکچر اور فائل سٹرکچر تفصیل کے ساتھ دیکھیں", expanded=True)
+        arch_placeholder = arch_expander.empty()
+        
         col1, col2 = st.columns([1, 2])
         
         with col1:
@@ -216,14 +221,42 @@ if st.button("🚀 100k Lines Enterprise Build شروع کریں"):
             log_box.markdown(f"<div class='log-container'>{'<br>'.join(logs[::-1])}</div>", unsafe_allow_html=True)
 
         add_log("🤖 ArchitectAgent کو ایکٹیویٹ کیا جا رہا ہے...")
-        add_log("🔍 پروجیکٹ کے پورے آرکیٹیکچر کا بریک ڈاؤن (100k Lines Planning) شروع...")
+        add_log("🔍 پروجیکٹ کے 100k Lines Blueprint کی تفصیلی بریک ڈاؤن تیار ہو رہی ہے...")
+        arch_placeholder.info("⏳ ArchitectAgent تمام ماڈیولز، API روٹس، اور ڈیپنڈنسیز کی فہرست تیار کر رہا ہے...")
 
-        # Step 1: Architectural Decomposition Phase
-        decomposition_prompt = f"""
-        Break down the following massive enterprise system into a granular list of at least 35 to 50 distinct source files to reach a 60,000 to 100,000 lines architecture scale.
-        Return ONLY a raw JSON array of file paths. Example format: ["prisma/schema.prisma", "src/app/page.tsx", ...]
+        # STEP 1: Detailed Architectural Plan & Explanation
+        arch_plan_prompt = f"""
+        Provide a comprehensive architectural plan for the enterprise system described below.
+        List all modules, database entities, security layer, and describe every single file path that needs to be generated to build this full-scale (100,000 lines scale) application.
+
+        Provide the output in Markdown format with:
+        1. Executive System Overview
+        2. Module Hierarchy & Architecture Diagram (text-based)
+        3. Detailed File Blueprint (List every file path and its core responsibilities)
 
         System Prompt / Blueprint:
+        {prompt_input}
+        """
+
+        arch_details, err = call_groq_llm(
+            arch_plan_prompt, key_mgr,
+            system_instruction="You are a Chief Enterprise Software Architect. Provide detailed breakdown of system components."
+        )
+
+        if arch_details:
+            arch_placeholder.markdown(arch_details)
+            add_log("✅ آرکیٹیکچر کا مکمل روڈ میپ اور فائلز کی تفصیل سکرین پر ظاہر کر دی گئی ہے۔")
+        else:
+            arch_placeholder.warning("⚠️ آرکیٹیکچر تفصیل حاصل نہیں ہو سکی، لیکن فائل ایکسٹریکشن جاری ہے۔")
+
+        # STEP 2: Extract JSON List of File Paths
+        add_log("📌 تمام فائلز کی کیٹلاگ لسٹ (JSON File Extraction) پروسیس ہو رہی ہے...")
+        
+        decomposition_prompt = f"""
+        Extract the complete list of distinct source file paths required for this project from the specification below.
+        Return ONLY a raw JSON array of file paths. Example format: ["prisma/schema.prisma", "src/app/page.tsx", ...]
+
+        System Blueprint:
         {prompt_input}
         """
 
@@ -241,7 +274,7 @@ if st.button("🚀 100k Lines Enterprise Build شروع کریں"):
             except Exception as e:
                 add_log(f"⚠️ JSON Parse Error, Fallback file structure apply ہو رہا ہے: {str(e)}")
 
-        # Fallback File Blueprint if decomposition output fails
+        # Fallback File Blueprint if JSON parsing fails
         if not file_paths:
             file_paths = [
                 "prisma/schema.prisma", "package.json", "tailwind.config.js", "src/app/globals.css",
@@ -258,9 +291,9 @@ if st.button("🚀 100k Lines Enterprise Build شروع کریں"):
             ]
 
         total_files = len(file_paths)
-        add_log(f"✅ آرکیٹیکچر تیار! کل **{total_files}** پرائمری ماڈیولر فائلز کوڈ کی جائیں گی۔")
+        add_log(f"🚀 کل **{total_files}** فائلز کی بلڈنگ اور GitHub پر اپ لوڈنگ شروع کی جا رہی ہے۔")
 
-        # Step 2: Sequential Generation & GitHub Upload Loop
+        # STEP 3: Sequential Generation & GitHub Upload Loop
         completed_count = 0
         for idx, file_path in enumerate(file_paths):
             add_log(f"🔄 CoderAgent تخلیق کر رہا ہے: **{file_path}** ({idx+1}/{total_files})")
