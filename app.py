@@ -101,48 +101,59 @@ if "key_index" not in st.session_state:
     st.session_state.key_index = 0
 
 # ==========================================
-# 3. LLM API Call Function
+# 3. LLM API Call Function with Rate Limit Auto-Retry
 # ==========================================
-def call_llm_api(system_prompt: str, user_prompt: str) -> str:
+def call_llm_api(system_prompt: str, user_prompt: str, retries=3) -> str:
     all_keys = groq_keys + openai_keys
     if not all_keys:
         raise ValueError("No API keys found!")
 
-    current_key = all_keys[st.session_state.key_index % len(all_keys)]
-    st.session_state.key_index += 1
+    for attempt in range(retries):
+        current_key = all_keys[st.session_state.key_index % len(all_keys)]
+        st.session_state.key_index += 1
 
-    headers = {
-        "Authorization": f"Bearer {current_key}",
-        "Content-Type": "application/json",
-    }
+        headers = {
+            "Authorization": f"Bearer {current_key}",
+            "Content-Type": "application/json",
+        }
 
-    if current_key.startswith("gsk_"):
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        model = "llama-3.3-70b-versatile"
-    else:
-        url = "https://api.openai.com/v1/chat/completions"
-        model = "gpt-4o-mini"
+        # High Speed & Lower Token Consumption Model for Rate-Limit protection
+        if current_key.startswith("gsk_"):
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            model = "llama-3.1-8b-instant"
+        else:
+            url = "https://api.openai.com/v1/chat/completions"
+            model = "gpt-4o-mini"
 
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.2,
-    }
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.2,
+        }
 
-    response = requests.post(url, headers=headers, json=payload, timeout=60)
-    if response.status_code == 200:
-        return response.json()["choices"][0]["message"]["content"]
-    else:
-        raise RuntimeError(f"API Error ({response.status_code}): {response.text}")
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
+            if response.status_code == 200:
+                return response.json()["choices"][0]["message"]["content"]
+            elif response.status_code == 429:
+                # Rate limit hit, wait & retry
+                time.sleep(8)
+            else:
+                raise RuntimeError(f"API Error ({response.status_code}): {response.text}")
+        except Exception as e:
+            if attempt == retries - 1:
+                raise e
+            time.sleep(6)
+
+    raise RuntimeError("Rate limit exceeded repeatedly. Please add a second Groq API key.")
 
 # ==========================================
-# 4. GitHub Push Function (GitHub Agent)
+# 4. GitHub Push Function
 # ==========================================
 def push_files_to_github(token, repo_name, files_dict, commit_message="Add AI Generated Code"):
-    """GitHub API کے ذریعے خودکار فائلیں اپ لوڈ کرنے کا فنکشن"""
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3+json",
@@ -152,7 +163,6 @@ def push_files_to_github(token, repo_name, files_dict, commit_message="Add AI Ge
     for file_path, content in files_dict.items():
         url = f"https://api.github.com/repos/{repo_name}/contents/{file_path}"
         
-        # چیک کریں کہ کیا فائل پہلے سے موجود ہے (Sha حاصل کرنے کے لیے)
         get_res = requests.get(url, headers=headers)
         sha = get_res.json().get("sha") if get_res.status_code == 200 else None
 
@@ -175,7 +185,7 @@ def push_files_to_github(token, repo_name, files_dict, commit_message="Add AI Ge
     return results
 
 # ==========================================
-# 5. Sidebar Configuration & GitHub Inputs
+# 5. Sidebar Configuration & Controls
 # ==========================================
 with st.sidebar:
     st.title("⚡ DevPulse Studio Pro")
@@ -200,13 +210,13 @@ with st.sidebar:
         value=os.getenv("GITHUB_REPO", ""),
     )
 
-    auto_push = st.checkbox("Auto Push to GitHub after Build", value=False)
+    auto_push = st.checkbox("Auto Push to GitHub after Build", value=True)
 
     st.divider()
-    auto_test = st.checkbox("Enable Automated Unit Tests", value=True)
+    auto_test = st.checkbox("Enable Automated Unit Tests", value=False)
 
 # ==========================================
-# 6. Main App Controls
+# 6. Main App UI
 # ==========================================
 st.title("🚀 Multi-Agent Code Generation Dashboard")
 st.write("پرامپٹ درج کریں اور ملٹی ایجنٹ سسٹم کو کوڈ تیار کرنے دیں۔")
@@ -216,7 +226,7 @@ col_prompt, col_action = st.columns([3, 1])
 with col_prompt:
     user_prompt = st.text_area(
         "پروجیکٹ کی تفصیل درج کریں:",
-        placeholder="مثال: ایک Express.js API سرور بنائیں جس میں Auth Controller ہو۔",
+        placeholder="مثال: NexaVault Digital Marketplace کا پروجیکٹ تیار کریں۔",
         height=130,
         disabled=st.session_state.is_building,
     )
@@ -250,7 +260,7 @@ with col_action:
                 st.rerun()
 
 # ==========================================
-# 7. Execution Pipeline
+# 7. Execution Pipeline with Auto Delay
 # ==========================================
 if st.session_state.is_building:
     st.divider()
@@ -270,7 +280,7 @@ if st.session_state.is_building:
         metric_agent.metric("موجودہ ایجنٹ", "ArchitectAgent 📐")
 
         architect_system_prompt = """You are an expert Software Architect.
-Output ONLY valid JSON:
+Output ONLY valid JSON without markdown:
 {
   "projectName": "string",
   "files": [
@@ -305,11 +315,11 @@ Output ONLY valid JSON:
 
             st.write(f"🔄 **تخلیق جاری:** `{filePath}`")
 
-            coder_system_prompt = f"Write production code for {filePath}. Purpose: {fileDesc}. Output ONLY code."
+            coder_system_prompt = f"Write production clean code for {filePath}. Purpose: {fileDesc}. Output ONLY code."
 
             try:
                 code_content = call_llm_api(coder_system_prompt, user_prompt)
-                clean_code = code_content.replace("```typescript", "").replace("```javascript", "").replace("```", "").strip()
+                clean_code = code_content.replace("```typescript", "").replace("```javascript", "").replace("```tsx", "").replace("```json", "").replace("```", "").strip()
                 st.session_state.generated_files[filePath] = clean_code
                 completed_count += 1
             except Exception as e:
@@ -327,14 +337,17 @@ Output ONLY valid JSON:
 
             progress = int((completed_count / total_files) * 100) if total_files > 0 else 100
             progress_bar.progress(progress)
+            
+            # Rate Limit Protection Delay (6 seconds between requests)
+            time.sleep(6)
 
         st.session_state.is_building = False
         metric_status.metric("اسٹیٹس", "مکمل 🟢")
-        st.success("✨ کوڈ کی تخلیق مکمل ہو گئی!")
+        st.success("✨ تمام فائلیں کامیابی سے بغیر کسی ایرر کے جنریٹ ہو گئی ہیں!")
 
         # Auto Push to GitHub if Enabled
         if auto_push and gh_token and gh_repo:
-            st.info("🐙 GitHub پر فائلیں اپ لوڈ ہو رہی ہیں...")
+            st.info("🐙 GitHub پر تمام فائلیں اپ لوڈ ہو رہی ہیں...")
             res = push_files_to_github(gh_token, gh_repo, st.session_state.generated_files)
             for file_p, success, msg in res:
                 if success:
@@ -343,7 +356,7 @@ Output ONLY valid JSON:
                     st.error(f"❌ `{file_p}` -> {msg}")
 
 # ==========================================
-# 8. File Explorer & Manual GitHub Push
+# 8. File Explorer
 # ==========================================
 if st.session_state.generated_files:
     st.divider()
@@ -352,7 +365,6 @@ if st.session_state.generated_files:
     col_view, col_actions = st.columns([2, 1])
 
     with col_actions:
-        # Zip Download Button
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             for file_path, code_content in st.session_state.generated_files.items():
@@ -368,10 +380,9 @@ if st.session_state.generated_files:
         )
 
         st.divider()
-        st.write("### 🐙 Manually Push to GitHub")
         if st.button("🚀 Push All Files to GitHub", use_container_width=True, type="primary"):
             if not gh_token or not gh_repo:
-                st.error("براہ کرم سائیڈ بار میں GitHub Token اور Repository کا نام درج کریں۔")
+                st.error("سائیڈ بار میں GitHub Token اور Repository درج کریں۔")
             else:
                 with st.spinner("GitHub پر اپ لوڈ ہو رہا ہے..."):
                     res = push_files_to_github(gh_token, gh_repo, st.session_state.generated_files)
