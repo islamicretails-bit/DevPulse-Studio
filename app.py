@@ -8,7 +8,7 @@ import urllib.error
 import re
 
 # ---------------------------------------------------------
-# Page Configuration & Custom CSS (Apple Dark Theme)
+# Page Configuration & Custom CSS
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="DevPulse Studio Enterprise Pro | 100k Lines Engine",
@@ -40,19 +40,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# API Key Manager & Rotator Engine
+# API Key Manager Engine
 # ---------------------------------------------------------
 class APIKeyManager:
     def __init__(self):
         self.keys = []
-        # Collect Groq API Keys dynamically from Environment Variables
         for k in os.environ:
             if k.startswith("GROQ_API_KEY"):
                 val = os.environ.get(k)
                 if val and val.strip():
                     self.keys.append(val.strip())
         
-        # Check Streamlit secrets if environment keys are missing
         if hasattr(st, "secrets"):
             for k in st.secrets:
                 if "GROQ_API_KEY" in k:
@@ -74,13 +72,13 @@ class APIKeyManager:
         return False
 
 # ---------------------------------------------------------
-# Groq API Client with Auto Retry & Backoff Engine
+# Groq API Client Engine (Optimized Max Tokens & Retries)
 # ---------------------------------------------------------
-def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise software architect.", model="llama-3.3-70b-versatile", max_retries=5):
+def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise software architect.", model="llama-3.3-70b-versatile", max_tokens=4000, max_retries=5):
     for attempt in range(max_retries):
         api_key = key_manager.get_key()
         if not api_key:
-            return None, "No GROQ API Key found in Environment or Secrets."
+            return None, "No GROQ API Key found."
 
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -94,7 +92,7 @@ def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.2,
-            "max_tokens": 8000
+            "max_tokens": max_tokens
         }
 
         try:
@@ -104,16 +102,15 @@ def call_groq_llm(prompt, key_manager, system_instruction="You are an enterprise
                 content = res_data['choices'][0]['message']['content']
                 return content, None
         except urllib.error.HTTPError as e:
-            if e.code == 429:  # Rate limit exceeded
-                rotated = key_manager.rotate()
-                wait_time = (attempt + 1) * 8
-                time.sleep(wait_time)
+            if e.code == 429:
+                key_manager.rotate()
+                time.sleep((attempt + 1) * 6)
             else:
-                time.sleep(4)
-        except Exception as ex:
-            time.sleep(4)
+                time.sleep(3)
+        except Exception:
+            time.sleep(3)
 
-    return None, "Rate limit exceeded across all keys repeatedly. Please wait 1-2 minutes or add additional API keys."
+    return None, "Rate limit / connection timeout on API call."
 
 # ---------------------------------------------------------
 # GitHub Integration Handler
@@ -126,17 +123,13 @@ def push_to_github(repo, path, content, token, commit_message="feat: enterprise 
         "User-Agent": "DevPulse-Studio"
     }
 
-    # Check if file already exists to obtain SHA
     sha = None
     try:
         req = urllib.request.Request(url, headers=headers, method='GET')
         with urllib.request.urlopen(req) as response:
             res_data = json.loads(response.read().decode('utf-8'))
             sha = res_data.get('sha')
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            return False, f"GitHub Get Error: {e.code}"
-    except Exception as e:
+    except Exception:
         pass
 
     encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
@@ -151,61 +144,52 @@ def push_to_github(repo, path, content, token, commit_message="feat: enterprise 
         req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='PUT')
         with urllib.request.urlopen(req) as response:
             return True, "Success"
-    except urllib.error.HTTPError as e:
-        return False, f"HTTP Error {e.code}: {e.read().decode('utf-8')}"
     except Exception as e:
         return False, str(e)
 
 # ---------------------------------------------------------
-# UI Layout & Application Engine
+# UI Layout
 # ---------------------------------------------------------
-st.title("⚡ DevPulse Studio Pro (100k Lines Scale Engine)")
-st.caption("Enterprise Monorepo Architecture & Multi-Agent Autonomous Code Generator")
+st.title("⚡ DevPulse Studio Pro (Enterprise Engine)")
+st.caption("Monorepo Architecture & Multi-Agent Code Generator")
 
 key_mgr = APIKeyManager()
 
-# Sidebar Configuration
 with st.sidebar:
-    st.header("⚙️ System Status & Secrets")
-    st.info(f"🔑 Active Groq Keys Detected: **{len(key_mgr.keys)}**")
+    st.header("⚙️ Configuration")
+    st.info(f"🔑 Active Keys: **{len(key_mgr.keys)}**")
     
     env_token = os.environ.get("GITHUB_TOKEN", "")
     secret_token = st.secrets.get("GITHUB_TOKEN", "") if hasattr(st, "secrets") else ""
-    default_token = env_token or secret_token
-    github_token = st.text_input("GitHub Personal Access Token", value=default_token, type="password")
+    github_token = st.text_input("GitHub Token", value=env_token or secret_token, type="password")
 
     env_repo = os.environ.get("GITHUB_REPO", "")
     secret_repo = st.secrets.get("GITHUB_REPO", "") if hasattr(st, "secrets") else ""
-    default_repo = env_repo or secret_repo
-    github_repo = st.text_input("Target Repository (username/repo)", value=default_repo)
+    github_repo = st.text_input("Target Repository (username/repo)", value=env_repo or secret_repo)
     
     st.markdown("---")
-    delay_interval = st.slider("Rate-Limit Delay per File (Seconds)", min_value=6, max_value=20, value=12)
-    st.caption("A delay of 12-15s prevents Groq rate limits for massive enterprise codebases.")
+    delay_interval = st.slider("Rate-Limit Delay (Seconds)", min_value=6, max_value=20, value=10)
 
-# Main Prompt Input
 prompt_input = st.text_area(
     "پرامپٹ درج کریں (Master Enterprise Blueprint Prompt):",
-    height=250,
-    placeholder="پاس ورڈ، ماسٹر پرامپٹ، یا 100,000 لائینز کے پروجیکٹ کی تفصیلات یہاں درج کریں۔"
+    height=220,
+    placeholder="ماستر پرامپٹ یہاں درج کریں۔"
 )
 
-if st.button("🚀 100k Lines Enterprise Build شروع کریں"):
+if st.button("🚀 Enterprise Build شروع کریں"):
     if not prompt_input.strip():
         st.error("براہِ کرم پہلے پرامپٹ درج کریں۔")
     elif not github_token or not github_repo:
-        st.error("GitHub Token اور Repository کا ہونا ضروری ہے۔")
+        st.error("GitHub Token اور Repository لازمی ہیں۔")
     elif len(key_mgr.keys) == 0:
-        st.error("کوئی Groq API Key نہیں ملی! Streamlit Secrets یا Environment میں GROQ_API_KEY_1 وغیرہ شامل کریں۔")
+        st.error("کوئی GROQ API Key نہیں ملی!")
     else:
         st.markdown("---")
         
-        # Expandable Section for Detailed Architecture Blueprint
-        arch_expander = st.expander("🏗️ پروجیکٹ کا آرکیٹیکچر اور فائل سٹرکچر تفصیل کے ساتھ دیکھیں", expanded=True)
+        arch_expander = st.expander("🏗️ پروجیکٹ کا آرکیٹیکچر اور فائل سٹرکچر", expanded=True)
         arch_placeholder = arch_expander.empty()
         
         col1, col2 = st.columns([1, 2])
-        
         with col1:
             st.markdown("### 📊 بلڈ پیشرفت")
             status_placeholder = st.empty()
@@ -220,108 +204,108 @@ if st.button("🚀 100k Lines Enterprise Build شروع کریں"):
             logs.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
             log_box.markdown(f"<div class='log-container'>{'<br>'.join(logs[::-1])}</div>", unsafe_allow_html=True)
 
-        add_log("🤖 ArchitectAgent کو ایکٹیویٹ کیا جا رہا ہے...")
-        add_log("🔍 پروجیکٹ کے 100k Lines Blueprint کی تفصیلی بریک ڈاؤن تیار ہو رہی ہے...")
-        arch_placeholder.info("⏳ ArchitectAgent تمام ماڈیولز، API روٹس، اور ڈیپنڈنسیز کی فہرست تیار کر رہا ہے...")
-
-        # STEP 1: Detailed Architectural Plan & Explanation
+        add_log("🤖 ArchitectAgent ایکٹیویٹ ہو چکا ہے۔..")
+        
+        # Fast & Reliable Architectural Overview
         arch_plan_prompt = f"""
-        Provide a comprehensive architectural plan for the enterprise system described below.
-        List all modules, database entities, security layer, and describe every single file path that needs to be generated to build this full-scale (100,000 lines scale) application.
+        Summarize the architecture for this enterprise blueprint in 4 concise sections:
+        1. System Overview
+        2. Key Tech Stack
+        3. Core Modules
+        4. Security & Payment Routing Structure
 
-        Provide the output in Markdown format with:
-        1. Executive System Overview
-        2. Module Hierarchy & Architecture Diagram (text-based)
-        3. Detailed File Blueprint (List every file path and its core responsibilities)
-
-        System Prompt / Blueprint:
-        {prompt_input}
+        Prompt: {prompt_input}
         """
 
+        arch_placeholder.info("⏳ ArchitectAgent سسٹم کا مکمل جائزہ تیار کر رہا ہے...")
         arch_details, err = call_groq_llm(
             arch_plan_prompt, key_mgr,
-            system_instruction="You are a Chief Enterprise Software Architect. Provide detailed breakdown of system components."
+            system_instruction="You are a Chief Enterprise Software Architect. Be concise.",
+            max_tokens=2500
         )
 
         if arch_details:
             arch_placeholder.markdown(arch_details)
-            add_log("✅ آرکیٹیکچر کا مکمل روڈ میپ اور فائلز کی تفصیل سکرین پر ظاہر کر دی گئی ہے۔")
+            add_log("✅ آرکیٹیکچر کا جائزہ کامیابی سے لوڈ کر لیا گیا ہے۔")
         else:
-            arch_placeholder.warning("⚠️ آرکیٹیکچر تفصیل حاصل نہیں ہو سکی، لیکن فائل ایکسٹریکشن جاری ہے۔")
+            arch_placeholder.warning("⚠️ آرکیٹیکچر کا خلاصہ سکپ کیا گیا، فائل جنریشن جاری ہے۔")
 
-        # STEP 2: Extract JSON List of File Paths
-        add_log("📌 تمام فائلز کی کیٹلاگ لسٹ (JSON File Extraction) پروسیس ہو رہی ہے...")
+        # Regex Extraction of Files directly from Prompt + LLM Backup
+        add_log("📌 پرامپٹ سے فائلز کا اسٹرکچر نکالا جا رہا ہے...")
         
-        decomposition_prompt = f"""
-        Extract the complete list of distinct source file paths required for this project from the specification below.
-        Return ONLY a raw JSON array of file paths. Example format: ["prisma/schema.prisma", "src/app/page.tsx", ...]
+        # Regex to catch files directly mentioned in user prompt
+        extracted_from_prompt = re.findall(r'[\w\/\.\-]+\.(?:prisma|json|js|css|ts|tsx|example)', prompt_input)
+        file_paths = list(set(extracted_from_prompt))
 
-        System Blueprint:
-        {prompt_input}
-        """
+        if len(file_paths) < 15:
+            # Call LLM for complete list if regex found fewer files
+            decomposition_prompt = f"""
+            Extract a JSON array of exact file paths mentioned in or required by this blueprint.
+            Return ONLY JSON array. Example: ["prisma/schema.prisma", "package.json"]
 
-        file_list_raw, err = call_groq_llm(
-            decomposition_prompt, key_mgr, 
-            system_instruction="You are an enterprise software architect. Return ONLY valid JSON string array of file paths."
-        )
+            Blueprint: {prompt_input}
+            """
+            file_list_raw, err = call_groq_llm(
+                decomposition_prompt, key_mgr, 
+                system_instruction="Return ONLY valid JSON array of strings.",
+                max_tokens=2000
+            )
+            if file_list_raw:
+                try:
+                    cleaned = re.search(r'\[.*\]', file_list_raw, re.DOTALL)
+                    if cleaned:
+                        parsed = json.loads(cleaned.group(0))
+                        file_paths = list(set(file_paths + parsed))
+                except Exception:
+                    pass
 
-        file_paths = []
-        if file_list_raw:
-            try:
-                cleaned_json = re.search(r'\[.*\]', file_list_raw, re.DOTALL)
-                if cleaned_json:
-                    file_paths = json.loads(cleaned_json.group(0))
-            except Exception as e:
-                add_log(f"⚠️ JSON Parse Error, Fallback file structure apply ہو رہا ہے: {str(e)}")
-
-        # Fallback File Blueprint if JSON parsing fails
+        # Final Fallback List if both fail
         if not file_paths:
             file_paths = [
                 "prisma/schema.prisma", "package.json", "tailwind.config.js", "src/app/globals.css",
-                "src/types/index.ts", "src/lib/security.ts", "src/lib/geo-currency.ts", "src/lib/ai-generator.ts",
-                "src/app/layout.tsx", "src/app/page.tsx", "src/app/office/page.tsx",
-                "src/app/dashboard/page.tsx", "src/app/affiliate/page.tsx", "src/app/vendor/page.tsx",
+                "vercel.json", ".env.example", "src/types/index.ts", "src/lib/security.ts",
+                "src/lib/geo-currency.ts", "src/lib/ai-generator.ts", "src/app/layout.tsx",
+                "src/app/page.tsx", "src/app/office/page.tsx", "src/app/dashboard/page.tsx",
+                "src/app/affiliate/page.tsx", "src/app/vendor/page.tsx",
                 "src/components/marketplace/ProductGrid.tsx", "src/components/marketplace/ProductCard.tsx",
                 "src/components/marketplace/CustomRequestModal.tsx", "src/components/marketplace/AppleToast.tsx",
                 "src/components/admin/LiveTrafficMap.tsx", "src/components/admin/AIOperationsHub.tsx",
                 "src/components/admin/SalesAnalyticsChart.tsx", "src/components/admin/CustomRequestsTable.tsx",
                 "src/app/api/cron/auto-generate/route.ts", "src/app/api/ai/generate-product/route.ts",
                 "src/app/api/payments/checkout/route.ts", "src/app/api/admin/analytics/route.ts",
-                "src/app/api/downloads/secure/route.ts", "vercel.json", ".env.example"
+                "src/app/api/downloads/secure/route.ts"
             ]
 
         total_files = len(file_paths)
         add_log(f"🚀 کل **{total_files}** فائلز کی بلڈنگ اور GitHub پر اپ لوڈنگ شروع کی جا رہی ہے۔")
 
-        # STEP 3: Sequential Generation & GitHub Upload Loop
+        # Sequential Code Generation & GitHub Upload
         completed_count = 0
         for idx, file_path in enumerate(file_paths):
-            add_log(f"🔄 CoderAgent تخلیق کر رہا ہے: **{file_path}** ({idx+1}/{total_files})")
+            add_log(f"🔄 CoderAgent جنریٹ کر رہا ہے: **{file_path}** ({idx+1}/{total_files})")
             
             gen_prompt = f"""
             System Blueprint: {prompt_input}
 
-            TASK: Write full, highly detailed, production-grade, unabridged source code for the file: `{file_path}`.
-            CRITICAL REQUIREMENTS:
-            1. Output ONLY the raw source code. Do NOT wrap in markdown backticks (e.g. no ```typescript).
-            2. Write clean, complete implementation without any placeholders or `// TODO` shortcuts.
-            3. Implement full type safety, comprehensive UI/UX logic, and complete handling of enterprise edge cases.
+            TASK: Write complete, production-grade source code for: `{file_path}`.
+            REQUIREMENTS:
+            1. Output ONLY raw source code (no markdown fences like ```typescript).
+            2. Write clean implementation with full type safety and no shortcuts.
             """
 
             code_content, gen_err = call_groq_llm(
                 gen_prompt, key_mgr,
-                system_instruction=f"You are a Senior Staff Engineer writing enterprise production code for {file_path}."
+                system_instruction=f"You are a Senior Staff Engineer writing enterprise code for {file_path}.",
+                max_tokens=6000
             )
 
             if gen_err or not code_content:
                 add_log(f"❌ Error Generating {file_path}: {gen_err}")
                 continue
 
-            # Clean markdown fences if generated
             clean_code = re.sub(r'^```\w*\n', '', code_content, flags=re.MULTILINE)
             clean_code = re.sub(r'\n```$', '', clean_code, flags=re.MULTILINE).strip()
 
-            # Push file directly to GitHub
             success, github_msg = push_to_github(github_repo, file_path, clean_code, github_token)
             
             if success:
@@ -330,7 +314,6 @@ if st.button("🚀 100k Lines Enterprise Build شروع کریں"):
             else:
                 add_log(f"⚠️ GitHub Upload Failed ({file_path}): {github_msg}")
 
-            # Update UI Progress & Status Card
             completed_count_val = idx + 1
             progress_bar.progress(completed_count_val / total_files)
             status_placeholder.markdown(f"""
@@ -341,8 +324,7 @@ if st.button("🚀 100k Lines Enterprise Build شروع کریں"):
             </div>
             """, unsafe_allow_html=True)
 
-            # Delay to avoid Groq Rate Limit
             time.sleep(delay_interval)
 
         add_log("✨ تمام فائلیں اور اینٹرپرائز اسٹرکچر کامیابی سے آپ کے GitHub پر اپ لوڈ ہو چکے ہیں!")
-        st.success("🎉 بلڈ مکمل ہو گیا! آپ کا پورا 100k Lines Scale پروجیکٹ GitHub پر تیار ہے۔")
+        st.success("🎉 بلڈ مکمل ہو گیا! آپ کا پروجیکٹ GitHub پر تیار ہے۔")
