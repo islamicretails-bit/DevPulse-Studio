@@ -1,11 +1,36 @@
-DevPulse-Studio/
-├── requirements.txt         # تمام ضروری پیکیجز (Streamlit, PyGithub, Google Gemini)
-├── config.py                 # گلوبل سیٹنگز، سیکیورٹی اور لاگنگ ہینڈلر
-├── README.md                # پروجیکٹ کی پروفیشنل گائیڈ
-├── app.py                   # Streamlit کا مین لائیو ڈیش بورڈ (UI)
-└── core/                    # AI ایجنٹس اور بیک اینڈ انجن
-    ├── __init__.py          # کور پیکیج مارکر
-    ├── github_manager.py    # GitHub API کے ذریعے خودکار Repo بنانا اور Files Push کرنا
-    ├── ai_architect.py      # پروجیکٹ کی تمام فائلز کا بلیو پرنٹ پلانر
-    ├── ai_coder.py          # ہر فائل کا 100% مکمل اور ڈیپ کوڈ جنریٹر
-    └── ai_reviewer.py       # پروجیکٹ کا سیکیورٹی اور آرکیٹیکچر آڈیٹر
+nexusvault-platform/
+├── .devpulse_progress.json         # [State Persistence] رکنے اور دوبارہ شروع ہونے کا ٹریکر
+├── netlify.toml                    # [Deployment] Netlify کے لیے کلین بلڈ کنفیگریشن
+├── package.json                    # [Dependencies] تمام درکار پیکیجز کی لسٹ
+├── tsconfig.json                   # [TypeScript] ٹائپ سیفٹی رولز
+│
+├── apps/
+│   └── web/                        # Main Application UI / Dashboard
+│       ├── next.config.js          # Build & Linting Overrides
+│       ├── package.json
+│       └── src/
+│           ├── app/
+│           │   ├── layout.tsx      # Core Application Shell
+│           │   ├── page.tsx        # Main Studio Entry Point
+│           │   └── api/
+│           │       └── engine/
+│           │           └── route.ts # API Route to trigger batch generation
+│           └── components/
+│               ├── StudioDashboard.tsx
+│               └── GenerationLogs.tsx
+│
+└── packages/
+    └── engine/                     # DevPulse AI Core Logic
+        ├── src/
+        │   ├── types/
+        │   │   └── engine.types.ts  # Types for Tasks, Progress, and Blueprints
+        │   ├── services/
+        │   │   ├── ApiKeyRotator.ts # Round-Robin Multi-API Key Handler
+        │   │   ├── RateLimitHandler.ts # Auto-Pause & Wait Manager (429 handling)
+        │   │   ├── StateTracker.ts  # File Save & Auto-Resume Persistence
+        │   │   └── CodeSanitizer.ts # Syntax Auditing & Auto-Healing
+        │   └── agents/
+        │       ├── ArchitectAgent.ts # Project Tree Generator
+        │       ├── CoderAgent.ts     # Deep File Code Writer
+        │       └── BatchOrchestrator.ts # Engine Coordinator
+        └── index.ts
