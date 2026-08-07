@@ -1,36 +1,46 @@
-nexusvault-platform/
-├── .devpulse_progress.json         # [State Persistence] رکنے اور دوبارہ شروع ہونے کا ٹریکر
-├── netlify.toml                    # [Deployment] Netlify کے لیے کلین بلڈ کنفیگریشن
-├── package.json                    # [Dependencies] تمام درکار پیکیجز کی لسٹ
-├── tsconfig.json                   # [TypeScript] ٹائپ سیفٹی رولز
+devpulse-studio-pro/
+├── .env.example                       # اینوائرنمنٹ ویری ایبلز کا ٹیمپلیٹ (Groq/OpenAI/GitHub Keys)
+├── .gitignore                         # گٹ اگنور فائل (node_modules, .env, dist وغیرہ)
+├── package.json                       # مونو ریپو روٹ پیکیج کنفیگریشن (Turbo Repo/Workspaces)
+├── README.md                          # مکمل پروجیکٹ ڈاکومینٹیشن اور گائیڈ
+├── requirements.txt                   # Streamlit Cloud کے لیے Python Dependencies
+├── app.py                             # Streamlit لائیو ڈیش بورڈ UI + GitHub Push Agent
 │
 ├── apps/
-│   └── web/                        # Main Application UI / Dashboard
-│       ├── next.config.js          # Build & Linting Overrides
-│       ├── package.json
-│       └── src/
-│           ├── app/
-│           │   ├── layout.tsx      # Core Application Shell
-│           │   ├── page.tsx        # Main Studio Entry Point
-│           │   └── api/
-│           │       └── engine/
-│           │           └── route.ts # API Route to trigger batch generation
-│           └── components/
-│               ├── StudioDashboard.tsx
-│               └── GenerationLogs.tsx
+│   └── web/                           # Next.js 14 Dashboard App
+│       ├── app/
+│       │   ├── api/
+│       │   │   ├── build/
+│       │   │   │   └── route.ts       # AI Engine Builder API Endpoint
+│       │   │   └── control/
+│       │   │       └── route.ts       # Pause / Resume Pipeline API Endpoint
+│       │   ├── layout.tsx             # Root Web Layout
+│       │   └── page.tsx               # Main Glassmorphism UI Dashboard
+│       ├── public/                    # اسٹیٹک ایٹسیٹس
+│       ├── next.config.js             # Next.js Config
+│       ├── package.json               # Next.js App Dependencies
+│       ├── tsconfig.json              # TypeScript Config for Web App
+│       └── tailwind.config.js         # Tailwind CSS Config
 │
 └── packages/
-    └── engine/                     # DevPulse AI Core Logic
+    ├── cli/                           # Interactive Command Line Interface
+    │   ├── src/
+    │   │   └── index.ts               # CLI Entry Point & Commander Commands
+    │   ├── package.json               # CLI Dependencies
+    │   └── tsconfig.json              # TypeScript Config for CLI
+    │
+    └── engine/                        # Core Autonomous Multi-Agent Engine
         ├── src/
-        │   ├── types/
-        │   │   └── engine.types.ts  # Types for Tasks, Progress, and Blueprints
+        │   ├── agents/
+        │   │   ├── ArchitectAgent.ts  # Blueprint & Directory Architecture Generator
+        │   │   ├── BatchOrchestrator.ts # Parallel Multi-Worker Execution Engine
+        │   │   ├── CoderAgent.ts      # Production Code Writer
+        │   │   └── TesterAgent.ts     # Automated Jest/Vitest Unit Test Generator
         │   ├── services/
-        │   │   ├── ApiKeyRotator.ts # Round-Robin Multi-API Key Handler
-        │   │   ├── RateLimitHandler.ts # Auto-Pause & Wait Manager (429 handling)
-        │   │   ├── StateTracker.ts  # File Save & Auto-Resume Persistence
-        │   │   └── CodeSanitizer.ts # Syntax Auditing & Auto-Healing
-        │   └── agents/
-        │       ├── ArchitectAgent.ts # Project Tree Generator
-        │       ├── CoderAgent.ts     # Deep File Code Writer
-        │       └── BatchOrchestrator.ts # Engine Coordinator
-        └── index.ts
+        │   │   ├── ApiKeyRotator.ts   # Multi-Key Failover & Key Pool Handler
+        │   │   └── RateLimitHandler.ts# Automatic Retry & Exponential Backoff
+        │   └── types/
+        │       └── engine.types.ts    # TypeScript Interfaces, Tasks, & Events
+        ├── index.ts                   # Core Engine Public Barrel Export
+        ├── package.json               # Engine Package Dependencies
+        └── tsconfig.json              # TypeScript Config for Core Engine
