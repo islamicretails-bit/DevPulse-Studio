@@ -9,41 +9,41 @@ import re
 from groq import Groq
 
 # ---------------------------------------------------------
-# Page Configuration & UI Theme
+# UI Configuration & Styling
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="DevPulse Studio Enterprise Pro | Strict Engine",
-    page_icon="🚀",
+    page_title="DevPulse Enterprise Mega Engine v4.0",
+    page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 st.markdown("""
 <style>
-    .main { background-color: #0B0F17; color: #F3F4F6; }
+    .main { background-color: #070A0F; color: #F3F4F6; }
     .stButton>button {
-        background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
-        color: white; border: none; padding: 12px 24px;
-        border-radius: 8px; font-weight: 600; width: 100%;
+        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+        color: white; border: none; padding: 14px 28px;
+        border-radius: 8px; font-weight: 700; width: 100%;
         transition: all 0.3s ease;
     }
-    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4); }
+    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(37, 99, 235, 0.4); }
     .status-card {
-        background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px; padding: 16px; margin-bottom: 12px; backdrop-filter: blur(12px);
+        background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px; padding: 18px; margin-bottom: 15px; backdrop-filter: blur(16px);
     }
     .log-container {
-        background-color: #05070B; border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 8px; padding: 12px; font-family: 'Courier New', monospace;
-        height: 420px; overflow-y: auto; color: #10B981; font-size: 13px;
+        background-color: #030508; border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px; padding: 14px; font-family: 'Courier New', monospace;
+        height: 400px; overflow-y: auto; color: #10B981; font-size: 13px; line-height: 1.6;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# API Key Manager Engine (Auto Key Rotation)
+# Robust Multi-Key Manager Engine
 # ---------------------------------------------------------
-class APIKeyManager:
+class MultiKeyManager:
     def __init__(self):
         self.keys = []
         self.current_index = 0
@@ -83,32 +83,28 @@ class APIKeyManager:
     def rotate(self):
         if len(self.keys) > 1:
             self.current_index = (self.current_index + 1) % len(self.keys)
-            return True
-        return False
+            return self.current_index
+        return 0
 
 # ---------------------------------------------------------
-# Strict Sequential Resilience LLM Engine
+# Infinite Resilient LLM Call Core
 # ---------------------------------------------------------
-PRIMARY_MODEL = "llama-3.3-70b-versatile"
+MODEL_NAME = "llama-3.3-70b-versatile"
 
-def call_groq_llm_strict(prompt, key_manager, system_instruction="You are an enterprise software architect.", max_tokens=5000, logger_callback=None):
-    """
-    یہ فنکشن تب تک لوپ میں رہے گا جب تک موجودہ کال 100% کامیاب نہ ہو جائے۔
-    اگلی کال پر جانا ناممکن ہے۔
-    """
+def call_groq_ultra_safe(prompt, key_manager, system_instruction="You are an enterprise software architect.", max_tokens=6000):
     attempt = 0
     while True:
         attempt += 1
         api_key = key_manager.get_key()
         
         if not api_key:
-            return None, "No GROQ API Key found."
+            return None, "No GROQ API Key provided!"
 
         try:
-            client = Groq(api_key=api_key, timeout=60.0)
+            client = Groq(api_key=api_key, timeout=90.0)
             
             completion = client.chat.completions.create(
-                model=PRIMARY_MODEL,
+                model=MODEL_NAME,
                 messages=[
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": prompt}
@@ -119,68 +115,56 @@ def call_groq_llm_strict(prompt, key_manager, system_instruction="You are an ent
             
             content = completion.choices[0].message.content
             if content and len(content.strip()) > 0:
+                # Rotate key after every successful call to distribute load evenly
+                key_manager.rotate()
                 return content, None
             else:
-                raise Exception("Empty response received from LLM.")
+                raise Exception("LLM provided blank response.")
 
         except Exception as e:
             err_msg = str(e)
-            rotated = key_manager.rotate()
+            next_idx = key_manager.rotate()
             
-            # Rate Limit (429) Handling - Sequential Wait
+            # Smart Delay handling for Rate Limits
             if "429" in err_msg or "rate_limit" in err_msg.lower():
-                wait_time = 15 if rotated else 25
-                if logger_callback:
-                    logger_callback(f"🛑 [Rate Limit 429] API کو بریک دیا جا رہا ہے۔ {wait_time} سیکنڈ بعد دوبارہ کوشش ہوگی (کوشش نمبر {attempt})...")
-            elif "timeout" in err_msg.lower() or "503" in err_msg:
-                wait_time = 10
-                if logger_callback:
-                    logger_callback(f"⚠️ [Network Timeout] {wait_time} سیکنڈز میں دوبارہ ٹرائی جاری ہے...")
+                wait_time = 45 + (attempt * 5)
+                st.warning(f"🛑 Rate Limit (429) Triggered! Swapped to Key #{next_idx + 1}. Pausing for {wait_time} seconds (Attempt {attempt})...")
             else:
-                wait_time = 8
-                if logger_callback:
-                    logger_callback(f"⚠️ [API Pause] {err_msg[:70]}... {wait_time}s میں دوبارہ ٹرائی کر رہے ہیں۔")
+                wait_time = 15
+                st.warning(f"⚠️ API Temporary Delay: {err_msg[:80]}... Auto Retrying in {wait_time}s...")
 
             time.sleep(wait_time)
 
 
-def generate_single_file_completely(prompt_input, file_path, key_mgr, logger_callback):
-    """
-    جب تک یہ فائل 100% مکمل نہ بنے، یہ فنکشن باہر نہیں نکلے گا۔
-    """
-    system_instruction = f"You are a Principal Software Engineer implementing complete, production-grade code for {file_path}."
+def build_large_file_content(prompt_input, file_path, key_mgr):
+    system_instruction = f"You are a Senior Principal Software Architect generating full production source code for: {file_path}"
     
     base_prompt = f"""
-    System Master Blueprint:
+    System Blueprint Prompt:
     {prompt_input}
 
     TASK:
-    Write COMPLETE, INDUSTRIAL-GRADE, FULLY FUNCTIONAL source code for: `{file_path}`.
+    Write COMPLETE, INDUSTRIAL-GRADE, FULLY FUNCTIONAL source code for file: `{file_path}`.
 
-    STRICT CRITICAL RULES:
-    - Write FULL implementations. Absolutely ZERO placeholders, NO '// TODO', NO cuts.
-    - Write all interfaces, imports, helper utilities, and models completely.
-    - Output RAW executable code inside markdown blocks.
+    CRITICAL INSTRUCTIONS:
+    - Write complete, compilable implementations. Absolutely ZERO placeholders, NO '// TODO', NO cuts.
+    - Write all type interfaces, dependencies, data models, and logic completely.
+    - Output ONLY raw executable code wrapped inside standard markdown codeblocks.
     """
 
-    # Lock until LLM returns full content
-    code_accumulated, err = call_groq_llm_strict(
+    code_accumulated, err = call_groq_ultra_safe(
         base_prompt, key_mgr, 
         system_instruction=system_instruction, 
-        max_tokens=5000, 
-        logger_callback=logger_callback
+        max_tokens=6000
     )
 
-    # Smart Continuation Check for Big Files
-    if code_accumulated and len(code_accumulated) > 10000 and not code_accumulated.strip().endswith(("}", ";", "export default", "```")):
-        logger_callback(f"🧩 File `{file_path}` بڑی ہے، دوسرا حصہ جوڑا جا رہا ہے۔..")
-        continuation_prompt = f"Continue EXACTLY where you left off for `{file_path}` without repeating previous code:\n\n... {code_accumulated[-400:]}"
-        
-        chunk, chunk_err = call_groq_llm_strict(
+    # Automatic continuation check for massive files
+    if code_accumulated and len(code_accumulated) > 12000 and not code_accumulated.strip().endswith(("}", ";", "export default", "```")):
+        continuation_prompt = f"Continue EXACTLY where you left off for `{file_path}` without repeating previous code:\n\n... {code_accumulated[-500:]}"
+        chunk, chunk_err = call_groq_ultra_safe(
             continuation_prompt, key_mgr, 
             system_instruction=system_instruction, 
-            max_tokens=3500, 
-            logger_callback=logger_callback
+            max_tokens=4000
         )
         if chunk and not chunk_err:
             code_accumulated += "\n" + chunk
@@ -188,14 +172,14 @@ def generate_single_file_completely(prompt_input, file_path, key_mgr, logger_cal
     return code_accumulated
 
 # ---------------------------------------------------------
-# GitHub Push Engine (Strict Retry)
+# GitHub Push Engine with Guaranteed Retries
 # ---------------------------------------------------------
-def push_to_github_strict(repo, path, content, token):
+def push_file_to_github_safe(repo, path, content, token):
     url = f"[https://api.github.com/repos/](https://api.github.com/repos/){repo}/contents/{path}"
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "DevPulse-Studio"
+        "User-Agent": "DevPulse-Mega-Engine"
     }
 
     sha = None
@@ -215,7 +199,7 @@ def push_to_github_strict(repo, path, content, token):
 
     encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
     payload = {
-        "message": f"feat: add complete {path}",
+        "message": f"feat(auto): generate complete {path}",
         "content": encoded_content
     }
     if sha:
@@ -224,131 +208,139 @@ def push_to_github_strict(repo, path, content, token):
     while True:
         try:
             req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='PUT')
-            with urllib.request.urlopen(req, timeout=45) as response:
+            with urllib.request.urlopen(req, timeout=60) as response:
                 return True
         except Exception as e:
-            time.sleep(5)
+            time.sleep(6)
 
 # ---------------------------------------------------------
-# User Interface Layout
+# Streamlit Session State & Interface Configuration
 # ---------------------------------------------------------
-st.title("⚡ DevPulse Studio Enterprise Engine (Strict Sequential)")
-st.caption("One File At A Time | 100% Guaranteed Execution")
+if "is_running" not in st.session_state:
+    st.session_state.is_running = False
+if "current_file_idx" not in st.session_state:
+    st.session_state.current_file_idx = 0
+if "file_queue" not in st.session_state:
+    st.session_state.file_queue = []
+if "logs" not in st.session_state:
+    st.session_state.logs = []
 
-key_mgr = APIKeyManager()
+st.title("🛡️ DevPulse Enterprise Mega Engine (100+ Files Capacity)")
+st.caption("Infinite Resilient Loop | Auto-Key Cycler | Strict File Lock")
+
+key_mgr = MultiKeyManager()
 
 with st.sidebar:
-    st.header("⚙️ Configuration")
-    
+    st.header("⚙️ Core Configuration")
     user_keys_input = st.text_area(
-        "Groq API Keys (کاما سے الگ کریں):",
-        placeholder="gsk_key1, gsk_key2",
-        help="2 یا اس سے زیادہ کیز درج کریں تاکہ پروسیس زیادہ تیز ہو۔"
+        "Groq API Keys (4 کیز کاما سے الگ کر کے درج کریں):",
+        placeholder="gsk_key1, gsk_key2, gsk_key3, gsk_key4",
+        help="4 API کیز شامل کرنے سے Rate Limit کا مسئلہ 90% کم ہو جاتا ہے۔"
     )
     if user_keys_input:
         key_mgr.add_manual_keys(user_keys_input)
 
-    active_keys_count = len(key_mgr.keys)
-    st.info(f"🔑 Active Groq Keys Detected: **{active_keys_count}**")
+    st.info(f"🔑 Detected Active API Keys: **{len(key_mgr.keys)}**")
 
-    # Safety Pause Selection
-    safety_delay = st.slider("فائلوں کے درمیان وقفہ (سیکنڈز):", min_value=5, max_value=25, value=12)
+    # Dynamic delay based on total keys
+    safety_delay = st.slider("فائلوں کے درمیان کول ڈاؤن (سیکنڈز):", min_value=5, max_value=30, value=12)
     
     env_token = os.environ.get("GITHUB_TOKEN", "")
     secret_token = st.secrets.get("GITHUB_TOKEN", "") if hasattr(st, "secrets") else ""
-    github_token = st.text_input("GitHub Token", value=env_token or secret_token, type="password")
+    github_token = st.text_input("GitHub Personal Access Token", value=env_token or secret_token, type="password")
 
     env_repo = os.environ.get("GITHUB_REPO", "")
     secret_repo = st.secrets.get("GITHUB_REPO", "") if hasattr(st, "secrets") else ""
-    github_repo = st.text_input("Target Repository (username/repo)", value=env_repo or secret_repo)
+    github_repo = st.text_input("GitHub Target Repo (username/repository)", value=env_repo or secret_repo)
 
 prompt_input = st.text_area(
-    "پرامپٹ درج کریں (Master Enterprise Blueprint Prompt):",
+    "اپنا Blueprint / Manifest Prompt درج کریں:",
     height=220,
-    placeholder="اپنا پورا پرامپٹ یہاں درج کریں۔"
+    placeholder="یہاں اپنا 100+ فائلوں کا مکمل پرامپٹ پیسٹ کریں۔..."
 )
 
-if st.button("🚀 Strict Build شروع کریں"):
-    if not prompt_input.strip():
-        st.error("براہِ کرم پہلے پرامپٹ درج کریں۔")
-    elif not github_token or not github_repo:
-        st.error("GitHub Token اور Repository لازمی ہیں۔")
-    elif len(key_mgr.keys) == 0:
-        st.error("کوئی GROQ API Key نہیں ملی! Sidebar چیک کریں۔")
-    else:
+col_b1, col_b2 = st.columns(2)
+with col_b1:
+    if st.button("🚀 Heavy Master Build شروع کریں", disabled=st.session_state.is_running):
+        if not prompt_input.strip():
+            st.error("پرامپٹ درج کرنا لازمی ہے۔")
+        elif not github_token or not github_repo:
+            st.error("GitHub Credentials لازمی ہیں۔")
+        elif len(key_mgr.keys) == 0:
+            st.error("کم از کم ایک Groq API Key درج کریں۔")
+        else:
+            # Dynamically extract all file paths from the prompt
+            extracted_paths = re.findall(r'[\w\/\.\-]+\.(?:prisma|json|js|jsx|css|ts|tsx|env|example|txt|md|sql)', prompt_input)
+            final_paths = list(dict.fromkeys(extracted_paths))  # Remove duplicates keeping order
+            
+            if not final_paths:
+                st.error("پرامپٹ میں سے کوئی بھی فائل پاتھ (File Path) نہیں مل سکا۔")
+            else:
+                st.session_state.file_queue = final_paths
+                st.session_state.current_file_idx = 0
+                st.session_state.is_running = True
+                st.session_state.logs = [f"[{time.strftime('%H:%M:%S')}] 🏁 Master Engine initialized. Queue length: {len(final_paths)} modules."]
+                st.rerun()
+
+with col_b2:
+    if st.button("🛑 Force Stop"):
+        st.session_state.is_running = False
+        st.warning("پروسیس صارف کی طرف سے روک دیا گیا ہے۔")
+
+# Execution Machine
+if st.session_state.is_running and st.session_state.file_queue:
+    total_files = len(st.session_state.file_queue)
+    curr_idx = st.session_state.current_file_idx
+
+    if curr_idx < total_files:
+        current_file = st.session_state.file_queue[curr_idx]
+
         st.markdown("---")
+        c1, c2 = st.columns([1, 2])
         
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.markdown("### 📊 پیشرفت")
-            status_placeholder = st.empty()
-            progress_bar = st.progress(0)
-            
-        with col2:
-            st.markdown("### 📋 لائیو لاگز")
-            log_box = st.empty()
-            
-        logs = []
-        def add_log(msg):
-            logs.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
-            log_box.markdown(f"<div class='log-container'>{'<br>'.join(logs[::-1])}</div>", unsafe_allow_html=True)
-
-        add_log("🤖 Strict System ایکٹیویٹ ہو گیا ہے۔..")
-
-        # Dynamic File Extraction from Prompt
-        extracted_from_prompt = re.findall(r'[\w\/\.\-]+\.(?:prisma|json|js|jsx|css|ts|tsx|env|example)', prompt_input)
-        file_paths = list(set(extracted_from_prompt))
-
-        if not file_paths:
-            file_paths = [
-                "prisma/schema.prisma", "package.json", "tailwind.config.js", "src/app/globals.css",
-                "vercel.json", ".env.example", "src/types/index.ts", "src/lib/security.ts",
-                "src/lib/geo-currency.ts", "src/lib/ai-generator.ts", "src/app/layout.tsx",
-                "src/app/page.tsx", "src/app/office/page.tsx", "src/app/dashboard/page.tsx",
-                "src/app/affiliate/page.tsx", "src/app/vendor/page.tsx",
-                "src/components/marketplace/ProductGrid.tsx", "src/components/marketplace/ProductCard.tsx",
-                "src/components/marketplace/CustomRequestModal.tsx", "src/components/marketplace/AppleToast.tsx",
-                "src/components/admin/LiveTrafficMap.tsx", "src/components/admin/AIOperationsHub.tsx",
-                "src/components/admin/SalesAnalyticsChart.tsx", "src/components/admin/CustomRequestsTable.tsx",
-                "src/app/api/cron/auto-generate/route.ts", "src/app/api/ai/generate-product/route.ts",
-                "src/app/api/payments/checkout/route.ts", "src/app/api/admin/analytics/route.ts",
-                "src/app/api/downloads/secure/route.ts"
-            ]
-
-        total_files = len(file_paths)
-        add_log(f"🚀 **{total_files}** فائلوں کا کام شروع ہو رہا ہے۔ (ایک وقت میں صرف ایک فائل)")
-
-        completed_count = 0
-        for idx, file_path in enumerate(file_paths):
-            add_log(f"🔒 [Lock Activated] فائل پر کام جاری ہے: **{file_path}** ({idx+1}/{total_files})")
-            
-            status_placeholder.markdown(f"""
+        with c1:
+            st.markdown("### 📊 Mega Build Progress")
+            st.markdown(f"""
             <div class='status-card'>
-                <h4>تخلیق کا اسٹیٹس</h4>
-                <p>فائلیں مکمل: <b>{completed_count}/{total_files}</b></p>
-                <p>موجودہ فائل: <code>{file_path}</code></p>
+                <h4>پیشرفت کی صورتحال</h4>
+                <p>فائلیں مکمل: <b>{curr_idx + 1} / {total_files}</b></p>
+                <p>موجودہ ایکٹیو فائل: <br><code>{current_file}</code></p>
             </div>
             """, unsafe_allow_html=True)
+            st.progress((curr_idx + 1) / total_files)
 
-            # Generate Single File completely
-            code_content = generate_single_file_completely(
-                prompt_input, file_path, key_mgr, logger_callback=add_log
-            )
+        with c2:
+            st.markdown("### 📋 Engine Operations Console")
+            log_box = st.empty()
+            log_box.markdown(f"<div class='log-container'>{'<br>'.join(st.session_state.logs[::-1])}</div>", unsafe_allow_html=True)
 
-            clean_code = re.sub(r'^```\w*\n', '', code_content, flags=re.MULTILINE)
-            clean_code = re.sub(r'\n```$', '', clean_code, flags=re.MULTILINE).strip()
+        # STRICT SEQUENTIAL PROCESS FOR 1 FILE AT A TIME
+        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] 🔒 [Lock Active] Generating file: `{current_file}` ({curr_idx + 1}/{total_files})")
+        log_box.markdown(f"<div class='log-container'>{'<br>'.join(st.session_state.logs[::-1])}</div>", unsafe_allow_html=True)
 
-            # Push Single File to GitHub strictly
-            add_log(f"⬆️ GitHub پر پش کیا جا رہا ہے: `{file_path}`")
-            push_to_github_strict(github_repo, file_path, clean_code, github_token)
-            
-            completed_count += 1
-            add_log(f"✅ [100% Done] `{file_path}` مکمل اور پش ہو گئی!")
-            progress_bar.progress((idx + 1) / total_files)
+        # Generate Single File Content
+        code_out = build_large_file_content(prompt_input, current_file, key_mgr)
 
-            # Mandatory Rest Pause to prevent Rate Limits
-            add_log(f"💤 Rate Limit سے بچنے کے لیے {safety_delay} سیکنڈ کا وقفہ دیا جا رہا ہے۔..")
-            time.sleep(safety_delay)
+        clean_code = re.sub(r'^```\w*\n', '', code_out, flags=re.MULTILINE)
+        clean_code = re.sub(r'\n```$', '', clean_code, flags=re.MULTILINE).strip()
 
-        add_log("✨ تمام کی تمام فائلیں کامیابی سے بن کر GitHub پر پش ہو چکی ہیں!")
-        st.success("🎉 تمام فائلیں 100% مکمل ہو گئی ہیں!")
+        # Push to GitHub strictly
+        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] ⬆️ Uploading to GitHub repo: `{current_file}`...")
+        log_box.markdown(f"<div class='log-container'>{'<br>'.join(st.session_state.logs[::-1])}</div>", unsafe_allow_html=True)
+
+        push_file_to_github_safe(github_repo, current_file, clean_code, github_token)
+
+        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] ✅ Success! File `{current_file}` uploaded.")
+        
+        # Advance Queue Index
+        st.session_state.current_file_idx += 1
+        
+        # Cool-down Pause & Dynamic Session Refresh
+        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] 💤 Cooling down for {safety_delay}s to respect API rate limits...")
+        time.sleep(safety_delay)
+        st.rerun()
+
+    else:
+        st.session_state.is_running = False
+        st.success("🎉 تمام کی تمام فائلیں 100% مکمل ہو کر آپ کی GitHub ریپوزٹری میں محفوظ ہو چکی ہیں!")
+        st.balloons()
