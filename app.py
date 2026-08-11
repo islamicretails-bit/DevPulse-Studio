@@ -9,11 +9,11 @@ import re
 from groq import Groq
 
 # ---------------------------------------------------------
-# UI Configuration & Styling
+# UI Configuration & Enterprise Branding
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="DevPulse Hybrid Enterprise Engine v5.0",
-    page_icon="⚡",
+    page_title="DevPulse Enterprise AI Studio v5.0",
+    page_icon="🕸️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -21,6 +21,47 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main { background-color: #070A0F; color: #F3F4F6; }
+    
+    /* Professional Logo Header Styling */
+    .brand-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 16px 24px;
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(5, 150, 105, 0.02) 100%);
+        border: 1px solid rgba(16, 185, 129, 0.2);
+        border-radius: 12px;
+        margin-bottom: 25px;
+    }
+    .brand-logo {
+        width: 48px;
+        height: 48px;
+        background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+    }
+    .brand-logo svg {
+        fill: white;
+        width: 28px;
+        height: 28px;
+    }
+    .brand-title {
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        color: #FFFFFF;
+        margin: 0;
+    }
+    .brand-subtitle {
+        font-size: 13px;
+        color: #9CA3AF;
+        margin: 0;
+    }
+
+    /* Buttons & Interface */
     .stButton>button {
         background: linear-gradient(135deg, #10B981 0%, #059669 100%);
         color: white; border: none; padding: 14px 28px;
@@ -39,6 +80,43 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# Render Professional AI Logo Banner
+st.markdown("""
+<div class="brand-header">
+    <div class="brand-logo">
+        <svg viewBox="0 0 24 24">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+    </div>
+    <div>
+        <h1 class="brand-title">DevPulse AI Studio</h1>
+        <p class="brand-subtitle">Enterprise Hybrid Build Engine • Multi-Cluster Key Rotation • Automated GitHub Pipeline</p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# Helper Function: Fetch GitHub Repositories
+# ---------------------------------------------------------
+def get_github_repos(token):
+    """Fetch user repositories directly from GitHub API"""
+    if not token:
+        return []
+    url = "https://api.github.com/user/repos?per_page=100&sort=updated"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "DevPulse-Enterprise-Engine"
+    }
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            repos_data = json.loads(response.read().decode('utf-8'))
+            return [repo['full_name'] for repo in repos_data]
+    except Exception as e:
+        st.sidebar.error(f"GitHub Repos Fetch Error: {e}")
+        return []
 
 # ---------------------------------------------------------
 # Multi-Engine Manager (4 Groq + 3 Gemini Keys)
@@ -140,7 +218,7 @@ def generate_module_code(file_path, prompt_input, engine_mgr, log_list):
                 log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚠️ Gemini Key #{g_num} Error: {str(e)[:60]}")
 
     # 3. Emergency Standby Cooldown if ALL keys are rate-limited
-    log_list.append(f"[{time.strftime('%H:%M:%S')}] 🛑 All 7 API keys busy! Taking a 25s cooldown before retry...")
+    log_list.append(f"[{time.strftime('%H:%M:%S')}] 🛑 All API keys busy! Taking a 25s cooldown before retry...")
     time.sleep(25)
     return generate_module_code(file_path, prompt_input, engine_mgr, log_list)
 
@@ -152,7 +230,7 @@ def push_file_to_github_safe(repo, path, content, token):
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "DevPulse-Hybrid-Engine"
+        "User-Agent": "DevPulse-Enterprise-Engine"
     }
 
     sha = None
@@ -201,24 +279,28 @@ if "file_queue" not in st.session_state:
 if "logs" not in st.session_state:
     st.session_state.logs = []
 
-st.title("⚡ Hybrid Build Engine (4 Groq + 3 Gemini Keys)")
-st.caption("Dual AI Clustering | Sequential File Locking | 100+ File Scale Engine")
-
 engine_mgr = MultiEngineManager()
 
 with st.sidebar:
     st.header("⚙️ API Cluster Setup")
     
+    # Auto-load from Secrets if available
+    sec_groq = st.secrets.get("GROQ_KEYS", "") if hasattr(st, "secrets") else ""
+    sec_gemini = st.secrets.get("GEMINI_KEYS", "") if hasattr(st, "secrets") else ""
+    sec_token = st.secrets.get("GITHUB_TOKEN", "") if hasattr(st, "secrets") else ""
+    
     groq_input = st.text_area(
         "Groq API Keys (4 کیز کاما سے الگ کریں):",
+        value=sec_groq,
         placeholder="gsk_key1, gsk_key2, gsk_key3, gsk_key4",
-        height=100
+        height=80
     )
     
     gemini_input = st.text_area(
         "Gemini API Keys (3 کیز کاما سے الگ کریں):",
+        value=sec_gemini,
         placeholder="AIzaSy_key1, AIzaSy_key2, AIzaSy_key3",
-        height=100
+        height=80
     )
     
     engine_mgr.set_keys(groq_input, gemini_input)
@@ -227,11 +309,24 @@ with st.sidebar:
 
     safety_delay = st.slider("فائلوں کے درمیان وقفہ (سیکنڈز):", min_value=3, max_value=20, value=6)
     
-    env_token = os.environ.get("GITHUB_TOKEN", "")
-    env_repo = os.environ.get("GITHUB_REPO", "")
+    github_token = st.text_input("GitHub Access Token", value=sec_token, type="password")
     
-    github_token = st.text_input("GitHub Access Token", value=env_token, type="password")
-    github_repo = st.text_input("GitHub Repository (username/repo)", value=env_repo)
+    # Dynamic GitHub Repository Dropdown Selection
+    github_repo = ""
+    if github_token:
+        with st.spinner("GitHub Repositories فیچ ہو رہی ہیں..."):
+            repo_list = get_github_repos(github_token)
+            
+        if repo_list:
+            github_repo = st.selectbox(
+                "اپنی GitHub Repository منتخب کریں:",
+                options=repo_list,
+                index=0
+            )
+        else:
+            github_repo = st.text_input("GitHub Repository (username/repo)")
+    else:
+        github_repo = st.text_input("GitHub Repository (username/repo)")
 
 prompt_input = st.text_area(
     "اپنا Blueprint / Manifest Prompt درج کریں:",
@@ -245,7 +340,7 @@ with col_b1:
         if not prompt_input.strip():
             st.error("پرامپٹ درج کرنا لازمی ہے۔")
         elif not github_token or not github_repo:
-            st.error("GitHub Credentials لازمی ہیں۔")
+            st.error("GitHub Credentials اور Repository کا انتخاب لازمی ہے۔")
         elif len(engine_mgr.groq_keys) == 0 and len(engine_mgr.gemini_keys) == 0:
             st.error("کم از کم ایک Groq یا Gemini API Key درج کریں۔")
         else:
@@ -258,7 +353,7 @@ with col_b1:
                 st.session_state.file_queue = final_paths
                 st.session_state.current_file_idx = 0
                 st.session_state.is_running = True
-                st.session_state.logs = [f"[{time.strftime('%H:%M:%S')}] 🏁 Hybrid Engine started. Total modules: {len(final_paths)}"]
+                st.session_state.logs = [f"[{time.strftime('%H:%M:%S')}] 🏁 Hybrid Engine started. Target Repo: {github_repo} | Total modules: {len(final_paths)}"]
                 st.rerun()
 
 with col_b2:
@@ -284,6 +379,7 @@ if st.session_state.is_running and st.session_state.file_queue:
                 <h4>پیشرفت کی صورتحال</h4>
                 <p>مکمل فائلیں: <b>{curr_idx + 1} / {total_files}</b></p>
                 <p>موجودہ فائل: <br><code>{current_file}</code></p>
+                <p>ٹارگٹ ریپو: <br><code>{github_repo}</code></p>
             </div>
             """, unsafe_allow_html=True)
             st.progress((curr_idx + 1) / total_files)
@@ -300,7 +396,7 @@ if st.session_state.is_running and st.session_state.file_queue:
         code_out = generate_module_code(current_file, prompt_input, engine_mgr, st.session_state.logs)
 
         # Upload to GitHub
-        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] ⬆️ Uploading to GitHub: `{current_file}`...")
+        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] ⬆️ Uploading to GitHub ({github_repo}): `{current_file}`...")
         log_box.markdown(f"<div class='log-container'>{'<br>'.join(st.session_state.logs[::-1])}</div>", unsafe_allow_html=True)
 
         push_file_to_github_safe(github_repo, current_file, code_out, github_token)
@@ -317,5 +413,5 @@ if st.session_state.is_running and st.session_state.file_queue:
 
     else:
         st.session_state.is_running = False
-        st.success("🎉 مبارک ہو! تمام فائلیں کاملاً مکمل ہو کر آپ کی GitHub ریپوزٹری میں اپ لوڈ ہو چکی ہیں!")
+        st.success(f"🎉 مبارک ہو! تمام فائلیں کامیابی کے ساتھ `{github_repo}` میں اپ لوڈ ہو چکی ہیں!")
         st.balloons()
