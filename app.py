@@ -103,9 +103,9 @@ def get_github_repos(token):
     """Fetch user repositories directly from GitHub API"""
     if not token:
         return []
-    url = "[https://api.github.com/user/repos?per_page=100&sort=updated](https://api.github.com/user/repos?per_page=100&sort=updated)"
+    url = "https://api.github.com/user/repos?per_page=100&sort=updated"
     headers = {
-        "Authorization": f"token {token}",
+        "Authorization": f"token {token.strip()}",
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "DevPulse-Enterprise-Engine"
     }
@@ -157,7 +157,7 @@ class MultiEngineManager:
 
 def call_gemini_rest(prompt, gemini_key):
     """Direct REST Call to Gemini API for speed and stability"""
-    url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=){gemini_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key.strip()}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": prompt}]}]
@@ -230,9 +230,9 @@ def generate_module_code(file_path, prompt_input, engine_mgr, log_list):
 # GitHub Upload Engine
 # ---------------------------------------------------------
 def push_file_to_github_safe(repo, path, content, token):
-    url = f"[https://api.github.com/repos/](https://api.github.com/repos/){repo}/contents/{path}"
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
     headers = {
-        "Authorization": f"token {token}",
+        "Authorization": f"token {token.strip()}",
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "DevPulse-Enterprise-Engine"
     }
