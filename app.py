@@ -103,7 +103,7 @@ def get_github_repos(token):
     """Fetch user repositories directly from GitHub API"""
     if not token:
         return []
-    url = "https://api.github.com/user/repos?per_page=100&sort=updated"
+    url = "[https://api.github.com/user/repos?per_page=100&sort=updated](https://api.github.com/user/repos?per_page=100&sort=updated)"
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3+json",
@@ -119,7 +119,7 @@ def get_github_repos(token):
         return []
 
 # ---------------------------------------------------------
-# Multi-Engine Manager (4 Groq + 3 Gemini Keys)
+# Multi-Engine Manager (Groq + Gemini Keys)
 # ---------------------------------------------------------
 class MultiEngineManager:
     def __init__(self):
@@ -140,7 +140,7 @@ class MultiEngineManager:
 
     def get_groq_key(self):
         if not self.groq_keys:
-            return None
+            return None, 0
         key = self.groq_keys[self.current_groq_idx]
         idx = self.current_groq_idx + 1
         self.current_groq_idx = (self.current_groq_idx + 1) % len(self.groq_keys)
@@ -148,7 +148,7 @@ class MultiEngineManager:
 
     def get_gemini_key(self):
         if not self.gemini_keys:
-            return None
+            return None, 0
         key = self.gemini_keys[self.current_gemini_idx]
         idx = self.current_gemini_idx + 1
         self.current_gemini_idx = (self.current_gemini_idx + 1) % len(self.gemini_keys)
@@ -157,7 +157,7 @@ class MultiEngineManager:
 
 def call_gemini_rest(prompt, gemini_key):
     """Direct REST Call to Gemini API for speed and stability"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+    url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=){gemini_key}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": prompt}]}]
@@ -183,50 +183,54 @@ def generate_module_code(file_path, prompt_input, engine_mgr, log_list):
     - Output ONLY raw executable code wrapped inside standard markdown codeblocks.
     """
 
-    # 1. Try Groq Keys First (Rotates through all 4 Keys)
-    if engine_mgr.groq_keys:
-        for _ in range(len(engine_mgr.groq_keys)):
-            groq_key, key_num = engine_mgr.get_groq_key()
-            try:
-                log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚡ [Groq Engine] Trying Key #{key_num} for `{file_path}`...")
-                client = Groq(api_key=groq_key, timeout=60.0)
-                completion = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": f"You are a Senior Principal Software Architect generating full source code for: {file_path}"},
-                        {"role": "user", "content": full_prompt}
-                    ],
-                    temperature=0.1,
-                    max_tokens=6000,
-                )
-                content = completion.choices[0].message.content
-                if content and len(content.strip()) > 0:
-                    return content
-            except Exception as e:
-                log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚠️ Groq Key #{key_num} Limit/Error: {str(e)[:60]}")
+    while True:
+        # 1. Try Groq Keys First (Rotates through all Keys)
+        if engine_mgr.groq_keys:
+            for _ in range(len(engine_mgr.groq_keys)):
+                groq_key, key_num = engine_mgr.get_groq_key()
+                if not groq_key:
+                    continue
+                try:
+                    log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚡ [Groq Engine] Trying Key #{key_num} for `{file_path}`...")
+                    client = Groq(api_key=groq_key, timeout=60.0)
+                    completion = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[
+                            {"role": "system", "content": f"You are a Senior Principal Software Architect generating full source code for: {file_path}"},
+                            {"role": "user", "content": full_prompt}
+                        ],
+                        temperature=0.1,
+                        max_tokens=6000,
+                    )
+                    content = completion.choices[0].message.content
+                    if content and len(content.strip()) > 0:
+                        return content
+                except Exception as e:
+                    log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚠️ Groq Key #{key_num} Limit/Error: {str(e)[:60]}")
 
-    # 2. Fallback to Gemini Keys (Rotates through all 3 Gemini Keys)
-    if engine_mgr.gemini_keys:
-        for _ in range(len(engine_mgr.gemini_keys)):
-            gemini_key, g_num = engine_mgr.get_gemini_key()
-            try:
-                log_list.append(f"[{time.strftime('%H:%M:%S')}] 🔄 [Gemini Fallback] Switching to Gemini Key #{g_num} for `{file_path}`...")
-                content = call_gemini_rest(full_prompt, gemini_key)
-                if content and len(content.strip()) > 0:
-                    return content
-            except Exception as e:
-                log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚠️ Gemini Key #{g_num} Error: {str(e)[:60]}")
+        # 2. Fallback to Gemini Keys (Rotates through all Gemini Keys)
+        if engine_mgr.gemini_keys:
+            for _ in range(len(engine_mgr.gemini_keys)):
+                gemini_key, g_num = engine_mgr.get_gemini_key()
+                if not gemini_key:
+                    continue
+                try:
+                    log_list.append(f"[{time.strftime('%H:%M:%S')}] 🔄 [Gemini Fallback] Switching to Gemini Key #{g_num} for `{file_path}`...")
+                    content = call_gemini_rest(full_prompt, gemini_key)
+                    if content and len(content.strip()) > 0:
+                        return content
+                except Exception as e:
+                    log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚠️ Gemini Key #{g_num} Error: {str(e)[:60]}")
 
-    # 3. Emergency Standby Cooldown if ALL keys are rate-limited
-    log_list.append(f"[{time.strftime('%H:%M:%S')}] 🛑 All API keys busy! Taking a 25s cooldown before retry...")
-    time.sleep(25)
-    return generate_module_code(file_path, prompt_input, engine_mgr, log_list)
+        # 3. Emergency Standby Cooldown if ALL keys are rate-limited
+        log_list.append(f"[{time.strftime('%H:%M:%S')}] 🛑 All API keys busy! Taking a 25s cooldown before retry...")
+        time.sleep(25)
 
 # ---------------------------------------------------------
 # GitHub Upload Engine
 # ---------------------------------------------------------
 def push_file_to_github_safe(repo, path, content, token):
-    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    url = f"[https://api.github.com/repos/](https://api.github.com/repos/){repo}/contents/{path}"
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3+json",
@@ -248,6 +252,7 @@ def push_file_to_github_safe(repo, path, content, token):
         except Exception:
             time.sleep(3)
 
+    # Clean Code from Markdown codeblock wrappers
     clean_code = re.sub(r'^```\w*\n', '', content, flags=re.MULTILINE)
     clean_code = re.sub(r'\n```$', '', clean_code, flags=re.MULTILINE).strip()
 
@@ -264,7 +269,7 @@ def push_file_to_github_safe(repo, path, content, token):
             req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='PUT')
             with urllib.request.urlopen(req, timeout=60) as response:
                 return True
-        except Exception as e:
+        except Exception:
             time.sleep(6)
 
 # ---------------------------------------------------------
@@ -344,7 +349,8 @@ with col_b1:
         elif len(engine_mgr.groq_keys) == 0 and len(engine_mgr.gemini_keys) == 0:
             st.error("کم از کم ایک Groq یا Gemini API Key درج کریں۔")
         else:
-            extracted_paths = re.findall(r'[\w\/\.\-]+\.(?:prisma|json|js|jsx|css|ts|tsx|env|example|txt|md|sql)', prompt_input)
+            # Enhanced Path Extraction Regular Expression
+            extracted_paths = re.findall(r'[\w\/\.\-]+\.(?:py|prisma|json|js|jsx|css|ts|tsx|yaml|yml|env|example|txt|md|sql)', prompt_input)
             final_paths = list(dict.fromkeys(extracted_paths))
             
             if not final_paths:
