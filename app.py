@@ -97,6 +97,30 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
+# Static File Generator (Fast-Track Bypass)
+# ---------------------------------------------------------
+def get_static_file_template(file_path):
+    """CSS اور JSON فائلوں کے لیے ڈائریکٹ ٹیمپلیٹ جنریٹ کرتا ہے تاکہ AI کالز کی بچت ہو سکے"""
+    if file_path.endswith('.css'):
+        return """@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+}"""
+    elif file_path.endswith('package.json'):
+        return '{\n  "name": "project",\n  "version": "1.0.0",\n  "private": true\n}'
+    return None
+
+# ---------------------------------------------------------
 # Helper Function: Fetch GitHub Repositories
 # ---------------------------------------------------------
 def get_github_repos(token):
@@ -156,7 +180,7 @@ class MultiEngineManager:
 
 
 def call_gemini_rest(prompt, gemini_key):
-    """Direct REST Call to Gemini API for speed and stability"""
+    """Direct REST Call to Gemini API for speed and stability (gemini-1.5-flash)"""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key.strip()}"
     headers = {"Content-Type": "application/json"}
     payload = {
@@ -170,6 +194,12 @@ def call_gemini_rest(prompt, gemini_key):
 
 
 def generate_module_code(file_path, prompt_input, engine_mgr, log_list):
+    # Fast Track Static Check (CSS / JSON Bypass)
+    static_code = get_static_file_template(file_path)
+    if static_code:
+        log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚡ [Fast-Track] Generating static file for `{file_path}` without API delay...")
+        return static_code
+
     full_prompt = f"""
     System Blueprint Prompt:
     {prompt_input}
@@ -223,8 +253,8 @@ def generate_module_code(file_path, prompt_input, engine_mgr, log_list):
                     log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚠️ Gemini Key #{g_num} Error: {str(e)[:60]}")
 
         # 3. Emergency Standby Cooldown if ALL keys are rate-limited
-        log_list.append(f"[{time.strftime('%H:%M:%S')}] 🛑 All API keys busy! Taking a 25s cooldown before retry...")
-        time.sleep(25)
+        log_list.append(f"[{time.strftime('%H:%M:%S')}] 🛑 All API keys busy! Taking a 20s cooldown before retry...")
+        time.sleep(20)
 
 # ---------------------------------------------------------
 # GitHub Upload Engine
@@ -295,14 +325,14 @@ with st.sidebar:
     sec_token = st.secrets.get("GITHUB_TOKEN", "") if hasattr(st, "secrets") else ""
     
     groq_input = st.text_area(
-        "Groq API Keys (4 کیز کاما سے الگ کریں):",
+        "Groq API Keys (کاما سے الگ کریں):",
         value=sec_groq,
         placeholder="gsk_key1, gsk_key2, gsk_key3, gsk_key4",
         height=80
     )
     
     gemini_input = st.text_area(
-        "Gemini API Keys (3 کیز کاما سے الگ کریں):",
+        "Gemini API Keys (کاما سے الگ کریں):",
         value=sec_gemini,
         placeholder="AIzaSy_key1, AIzaSy_key2, AIzaSy_key3",
         height=80
