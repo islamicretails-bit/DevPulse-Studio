@@ -100,7 +100,7 @@ st.markdown("""
 # Static File Generator (Fast-Track Bypass)
 # ---------------------------------------------------------
 def get_static_file_template(file_path):
-    """CSS اور JSON فائلوں کے لیے ڈائریکٹ ٹیمپلیٹ جنریٹ کرتا ہے تاکہ AI کالز کی بچت ہو سکے"""
+    """CSS, JSON اور بیسک کنفیگ فائلوں کے لیے ڈائریکٹ ٹیمپلیٹ جنریٹ کرتا ہے تاکہ AI API کی بچت ہو سکے"""
     if file_path.endswith('.css'):
         return """@tailwind base;
 @tailwind components;
@@ -118,6 +118,8 @@ body {
 }"""
     elif file_path.endswith('package.json'):
         return '{\n  "name": "project",\n  "version": "1.0.0",\n  "private": true\n}'
+    elif file_path.endswith('.env.example'):
+        return "SECRET_KEY=\nDATABASE_URL=\n"
     return None
 
 # ---------------------------------------------------------
@@ -180,8 +182,8 @@ class MultiEngineManager:
 
 
 def call_gemini_rest(prompt, gemini_key):
-    """Direct REST Call to Gemini API for speed and stability (gemini-1.5-flash)"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key.strip()}"
+    """Direct REST Call to Gemini API (gemini-2.5-flash)"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key.strip()}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": prompt}]}]
@@ -379,8 +381,11 @@ with col_b1:
         elif len(engine_mgr.groq_keys) == 0 and len(engine_mgr.gemini_keys) == 0:
             st.error("کم از کم ایک Groq یا Gemini API Key درج کریں۔")
         else:
-            # Enhanced Path Extraction Regular Expression
-            extracted_paths = re.findall(r'[\w\/\.\-]+\.(?:py|prisma|json|js|jsx|css|ts|tsx|yaml|yml|env|example|txt|md|sql)', prompt_input)
+            # Multi-pattern regex for code headers (// path/file.ext or # path/file.ext)
+            extracted_paths = re.findall(
+                r'(?:(?:\/\/|#)\s*)?([\w\/\.\-]+\.(?:py|prisma|json|js|jsx|css|ts|tsx|yaml|yml|env|example|txt|md|sql))',
+                prompt_input
+            )
             final_paths = list(dict.fromkeys(extracted_paths))
             
             if not final_paths:
