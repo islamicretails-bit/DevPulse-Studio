@@ -1,6 +1,6 @@
 import os
 import time
-import requests
+import concurrent.futures
 import google.generativeai as genai
 from groq import Groq
 import streamlit as st
@@ -8,8 +8,8 @@ import streamlit as st
 # ==========================================
 # 1. CONSTANTS & MODEL CONFIGURATION
 # ==========================================
-# Gemini ماڈل 1.5-flash / 2.0-flash پر سیٹ کریں (تاکہ 404 Error نہ آئے)
-GEMINI_MODEL_NAME = "gemini-1.5-flash" 
+GEMINI_MODEL_NAME = "gemini-1.5-flash"  # Working model without 404 error
+MAX_CONCURRENT_WORKERS = 5              # ایک وقت میں 5 فائلیں ایک ساتھ بنیں گی
 
 def get_static_template(file_path):
     """CSS اور دیگر Static فائلوں کے لیے API کے بغیر ڈائریکٹ کوڈ جنریٹ کریں"""
@@ -39,73 +39,138 @@ body {
         return '{\n  "name": "project",\n  "version": "1.0.0",\n  "private": true\n}'
     return None
 
-
 # ==========================================
-# 2. GENERATION ENGINE WITH ROTATION & FALLBACK
+# 2. INDIVIDUAL WORKER TASK (PARALLEL READY)
 # ==========================================
-def generate_file_content(file_path, prompt, groq_keys, gemini_keys):
+def worker_task(args):
     """
-    1. Static فائلوں کو ڈائریکٹ ٹیمپلیٹ سے بناتا ہے۔
-    2. Groq Keys پر چلاتا ہے۔
-    3. فیل ہونے پر Gemini (1.5-flash) پر Fallback کرتا ہے۔
+    یہ ورکر فنکشن ہر فائل کو پیرالل (ایک ساتھ) پروسیس کرے گا۔
     """
+    file_path, prompt, task_index, groq_keys, gemini_keys = args
     
-    # Check 1: Static Files Bypass (CSS, JSON وغیرہ)
+    # Check 1: Static Files Bypass
     static_content = get_static_template(file_path)
     if static_content:
-        st.write(f"⚡ [Fast Track] Using static template for `{file_path}`")
-        return static_content
+        return file_path, static_content, "Fast-Track Static"
 
-    # Check 2: Groq Engine Loop
-    if groq_keys:
-        for idx, key in enumerate(groq_keys, start=1):
-            try:
-                st.write(f"⚡ [Groq Engine] Trying Key #{idx} for `{file_path}`...")
-                client = Groq(api_key=key.strip())
-                response = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": "You are an expert full-stack developer."},
-                        {"role": "user", "content": f"Generate raw code for file `{file_path}` based on prompt:\n{prompt}"}
-                    ],
-                    temperature=0.2
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                st.write(f"⚠️ Groq Key #{idx} Limit/Error: {str(e)[:60]}")
-                time.sleep(1)
+    # Engine Routing Logic: Alternating between Groq and Gemini Alliance
+    prefer_engine = "groq" if task_index % 2 == 0 else "gemini"
+    
+    # Try Groq Execution
+    if prefer_engine == "groq" and groq_keys:
+        key = groq_keys[task_index % len(groq_keys)].strip()
+        try:
+            client = Groq(api_key=key)
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "You are an expert full-stack developer."},
+                    {"role": "user", "content": f"Generate raw code for file `{file_path}` based on prompt:\n{prompt}"}
+                ],
+                temperature=0.2
+            )
+            return file_path, response.choices[0].message.content, f"Groq (Key #{task_index % len(groq_keys) + 1})"
+        except Exception as e:
+            prefer_engine = "gemini" # Fallback to Gemini if Groq fails
 
-    # Check 3: Gemini Fallback Loop
+    # Try Gemini Execution / Fallback
     if gemini_keys:
-        for idx, key in enumerate(gemini_keys, start=1):
-            try:
-                st.write(f"🔄 [Gemini Fallback] Switching to Gemini Key #{idx} for `{file_path}`...")
-                genai.configure(api_key=key.strip())
-                model = genai.GenerativeModel(GEMINI_MODEL_NAME)
+        key = gemini_keys[task_index % len(gemini_keys)].strip()
+        try:
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel(GEMINI_MODEL_NAME)
+            response = model.generate_content(
+                f"Generate production-ready raw code ONLY for file `{file_path}`:\n{prompt}"
+            )
+            return file_path, response.text, f"Gemini (Key #{task_index % len(gemini_keys) + 1})"
+        except Exception as e:
+            pass
+
+    # If all primary keys fail, last resort loop across remaining keys
+    for key in groq_keys:
+        try:
+            client = Groq(api_key=key.strip())
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": f"Generate raw code for file `{file_path}`:\n{prompt}"}]
+            )
+            return file_path, response.choices[0].message.content, "Groq (Fallback)"
+        except:
+            continue
+
+    return file_path, None, "Failed"
+
+# ==========================================
+# 3. PARALLEL BUILD PROCESSOR
+# ==========================================
+def process_build_queue_parallel(file_list, master_prompt, groq_keys, gemini_keys):
+    """
+    تمام فائلوں کو ایک ساتھ (Parallel Threads) میں چلانے کا مین فنکشن
+    """
+    st.info(f"🚀 Parallel Engine Alliance Started! Processing {len(file_list)} files using {MAX_CONCURRENT_WORKERS} parallel streams.")
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # Task Preparation
+    tasks = [
+        (file_path, master_prompt, idx, groq_keys, gemini_keys) 
+        for idx, file_path in enumerate(file_list)
+    ]
+    
+    completed_files = 0
+    total_files = len(file_list)
+    
+    # Parallel Thread Pool Execution
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENT_WORKERS) as executor:
+        futures = [executor.submit(worker_task, task) for task in tasks]
+        
+        for future in concurrent.futures.as_completed(futures):
+            file_path, content, engine_used = future.result()
+            completed_files += 1
+            
+            if content:
+                st.write(f"✅ **[{engine_used}]** Successfully generated: `{file_path}`")
                 
-                response = model.generate_content(
-                    f"Generate production-ready raw code ONLY for file `{file_path}`:\n{prompt}"
-                )
-                return response.text
-            except Exception as e:
-                st.write(f"⚠️ Gemini Key #{idx} Error: {str(e)[:60]}")
-                time.sleep(1)
+                # Local Directory Persistence
+                os.makedirs(os.path.dirname(file_path) if os.path.dirname(file_path) else ".", exist_ok=True)
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+            else:
+                st.error(f"❌ Failed to generate `{file_path}` across all keys.")
+            
+            # Update Progress Bar
+            progress_bar.progress(completed_files / total_files)
+            status_text.text(f"Processed {completed_files}/{total_files} files...")
 
-    # اگر تمام کیز فیل ہو جائیں تو Cooldown
-    st.write("🛑 All API keys busy! Taking a 25s cooldown before retry...")
-    time.sleep(25)
-    return None
+    st.success("🎉 All files generated in parallel successfully!")
 
 # ==========================================
-# 3. BUILD PROCESSOR EXAMPLE
+# 4. STREAMLIT UI INTEGRATION EXAMPLE
 # ==========================================
-def process_build_queue(file_list, master_prompt, groq_keys, gemini_keys):
-    for index, file_path in enumerate(file_list, start=1):
-        st.write(f"🔒 File Lock Active: `{file_path}` ({index}/{len(file_list)})")
-        
-        content = None
-        while content is None:
-            content = generate_file_content(file_path, master_prompt, groq_keys, gemini_keys)
-        
-        # GitHub Upload or File Saving Logic
-        st.success(f"✅ Generated & Saved `{file_path}` successfully!")
+st.title("⚡ Multi-Engine Parallel Code Generator")
+
+# Key Inputs (From secrets or text boxes)
+groq_keys_input = st.text_area("Enter Groq Keys (comma separated)", value=st.secrets.get("GROQ_KEYS", ""))
+gemini_keys_input = st.text_area("Enter Gemini Keys (comma separated)", value=st.secrets.get("GEMINI_KEYS", ""))
+
+groq_keys_list = [k.strip() for k in groq_keys_input.split(",") if k.strip()]
+gemini_keys_list = [k.strip() for k in gemini_keys_input.split(",") if k.strip()]
+
+if st.button("🚀 Start Parallel Build"):
+    if not groq_keys_list and not gemini_keys_list:
+        st.error("براہ کرم کم از کم ایک Groq یا Gemini API Key فراہم کریں۔")
+    else:
+        sample_files = [
+            "prisma/schema.prisma",
+            "src/app/page.tsx",
+            "src/app/layout.tsx",
+            "src/app/globals.css",
+            "src/app/api/route.ts"
+        ]
+        process_build_queue_parallel(
+            file_list=sample_files,
+            master_prompt="Build a high performance SaaS web application.",
+            groq_keys=groq_keys_list,
+            gemini_keys=gemini_keys_list
+        )
