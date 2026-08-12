@@ -1,7 +1,7 @@
 {
   "name": "devpulse-studio-pro",
   "version": "1.0.0",
-  "description": "Enterprise Multi-Agent AI System for Full-Stack Software Generation",
+  "description": "Enterprise Multi-Agent AI System & Parallel Code Generation Engine",
   "private": true,
   "workspaces": [
     "packages/*",
@@ -11,19 +11,32 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
+    "format": "prettier --write .",
     "type-check": "turbo run type-check",
+    "engine:start": "python builder_engine.py",
+    "engine:parallel": "python builder_engine.py --workers 5",
     "cli": "ts-node packages/cli/src/index.ts",
     "example": "ts-node examples/build-platform.ts",
-    "clean": "rimraf node_modules packages/*/node_modules apps/*/node_modules dist packages/*/dist apps/*/dist"
+    "clean": "rimraf node_modules packages/*/node_modules apps/*/node_modules dist packages/*/dist apps/*/dist .turbo"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
-    "rimraf": "^5.0.5",
+    "@types/node": "^20.14.0",
+    "prettier": "^3.3.0",
+    "rimraf": "^5.0.7",
     "ts-node": "^10.9.2",
-    "turbo": "^1.12.0",
-    "typescript": "^5.3.3"
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.5"
   },
   "engines": {
-    "node": ">=18.0.0"
-  }
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "keywords": [
+    "multi-agent",
+    "ai-code-generator",
+    "groq-alliance",
+    "gemini-fallback",
+    "devpulse-studio",
+    "parallel-build-engine"
+  ]
 }
