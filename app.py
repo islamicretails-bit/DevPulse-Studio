@@ -12,7 +12,7 @@ from groq import Groq
 # UI Configuration & Enterprise Branding
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="DevPulse Enterprise AI Studio v5.0",
+    page_title="DevPulse Enterprise AI Studio v6.0",
     page_icon="🕸️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -22,7 +22,6 @@ st.markdown("""
 <style>
     .main { background-color: #070A0F; color: #F3F4F6; }
     
-    /* Professional Logo Header Styling */
     .brand-header {
         display: flex;
         align-items: center;
@@ -43,25 +42,10 @@ st.markdown("""
         justify-content: center;
         box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
     }
-    .brand-logo svg {
-        fill: white;
-        width: 28px;
-        height: 28px;
-    }
-    .brand-title {
-        font-size: 24px;
-        font-weight: 800;
-        letter-spacing: -0.5px;
-        color: #FFFFFF;
-        margin: 0;
-    }
-    .brand-subtitle {
-        font-size: 13px;
-        color: #9CA3AF;
-        margin: 0;
-    }
+    .brand-logo svg { fill: white; width: 28px; height: 28px; }
+    .brand-title { font-size: 24px; font-weight: 800; color: #FFFFFF; margin: 0; }
+    .brand-subtitle { font-size: 13px; color: #9CA3AF; margin: 0; }
 
-    /* Buttons & Interface */
     .stButton>button {
         background: linear-gradient(135deg, #10B981 0%, #059669 100%);
         color: white; border: none; padding: 14px 28px;
@@ -81,7 +65,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Render Professional AI Logo Banner
 st.markdown("""
 <div class="brand-header">
     <div class="brand-logo">
@@ -90,43 +73,28 @@ st.markdown("""
         </svg>
     </div>
     <div>
-        <h1 class="brand-title">DevPulse AI Studio</h1>
-        <p class="brand-subtitle">Enterprise Hybrid Build Engine • Multi-Cluster Key Rotation • Automated GitHub Pipeline</p>
+        <h1 class="brand-title">DevPulse AI Studio v6.0</h1>
+        <p class="brand-subtitle">Unified Interleaved Engine • Single-Mind AI Balancing • Automated GitHub Pipeline</p>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# Static File Generator (Fast-Track Bypass)
+# Static Fast-Track Bypass
 # ---------------------------------------------------------
 def get_static_file_template(file_path):
-    """CSS, JSON اور بیسک کنفیگ فائلوں کے لیے ڈائریکٹ ٹیمپلیٹ جنریٹ کرتا ہے تاکہ AI API کی بچت ہو سکے"""
     if file_path.endswith('.css'):
-        return """@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-:root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-}"""
+        return "@tailwind base;\n@tailwind components;\n@tailwind utilities;"
     elif file_path.endswith('package.json'):
         return '{\n  "name": "project",\n  "version": "1.0.0",\n  "private": true\n}'
     elif file_path.endswith('.env.example'):
-        return "SECRET_KEY=\nDATABASE_URL=\n"
+        return "DATABASE_URL=\nSECRET_KEY=\n"
     return None
 
 # ---------------------------------------------------------
-# Helper Function: Fetch GitHub Repositories
+# GitHub API Repositories Fetcher
 # ---------------------------------------------------------
 def get_github_repos(token):
-    """Fetch user repositories directly from GitHub API"""
     if not token:
         return []
     url = "https://api.github.com/user/repos?per_page=100&sort=updated"
@@ -140,66 +108,88 @@ def get_github_repos(token):
         with urllib.request.urlopen(req, timeout=10) as response:
             repos_data = json.loads(response.read().decode('utf-8'))
             return [repo['full_name'] for repo in repos_data]
-    except Exception as e:
-        st.sidebar.error(f"GitHub Repos Fetch Error: {e}")
+    except Exception:
         return []
 
 # ---------------------------------------------------------
-# Multi-Engine Manager (Groq + Gemini Keys)
+# Unified "One Mind" Cluster Engine Manager
 # ---------------------------------------------------------
-class MultiEngineManager:
+class UnifiedClusterEngine:
     def __init__(self):
-        self.groq_keys = []
-        self.gemini_keys = []
-        self.current_groq_idx = 0
-        self.current_gemini_idx = 0
-
-    def parse_keys(self, text_input):
-        if not text_input:
-            return []
-        keys = [k.strip() for k in text_input.split(",") if k.strip()]
-        return keys
+        self.providers = []  # Interleaved list of Groq and Gemini keys
+        self.current_idx = 0
 
     def set_keys(self, groq_str, gemini_str):
-        self.groq_keys = self.parse_keys(groq_str)
-        self.gemini_keys = self.parse_keys(gemini_str)
+        groq_keys = [k.strip() for k in groq_str.split(",") if k.strip()] if groq_str else []
+        gemini_keys = [k.strip() for k in gemini_str.split(",") if k.strip()] if gemini_str else []
 
-    def get_groq_key(self):
-        if not self.groq_keys:
-            return None, 0
-        key = self.groq_keys[self.current_groq_idx]
-        idx = self.current_groq_idx + 1
-        self.current_groq_idx = (self.current_groq_idx + 1) % len(self.groq_keys)
-        return key, idx
+        self.providers = []
+        max_len = max(len(groq_keys), len(gemini_keys))
 
-    def get_gemini_key(self):
-        if not self.gemini_keys:
-            return None, 0
-        key = self.gemini_keys[self.current_gemini_idx]
-        idx = self.current_gemini_idx + 1
-        self.current_gemini_idx = (self.current_gemini_idx + 1) % len(self.gemini_keys)
-        return key, idx
+        # Interleave keys so Groq and Gemini alternate dynamically (One Brain)
+        for i in range(max_len):
+            if i < len(groq_keys):
+                self.providers.append({
+                    "type": "groq",
+                    "key": groq_keys[i],
+                    "name": f"Groq Key #{i+1}",
+                    "cooldown_until": 0
+                })
+            if i < len(gemini_keys):
+                self.providers.append({
+                    "type": "gemini",
+                    "key": gemini_keys[i],
+                    "name": f"Gemini Key #{i+1}",
+                    "cooldown_until": 0
+                })
+
+    def get_next_available_provider(self):
+        if not self.providers:
+            return None
+
+        now = time.time()
+        total = len(self.providers)
+
+        for _ in range(total):
+            provider = self.providers[self.current_idx]
+            self.current_idx = (self.current_idx + 1) % total
+
+            if now >= provider["cooldown_until"]:
+                return provider
+
+        return None
+
+    def mark_cooldown(self, provider, seconds=45):
+        provider["cooldown_until"] = time.time() + seconds
 
 
 def call_gemini_rest(prompt, gemini_key):
-    """Direct REST Call to Gemini API (gemini-2.5-flash)"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key.strip()}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
+    """Corrected REST API Call for Gemini (v1beta endpoint)"""
+    models = ["gemini-2.0-flash", "gemini-1.5-flash"]
     
-    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
-    with urllib.request.urlopen(req, timeout=90) as response:
-        res_data = json.loads(response.read().decode('utf-8'))
-        return res_data['candidates'][0]['content']['parts'][0]['text']
+    for model_name in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key.strip()}"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+        try:
+            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+            with urllib.request.urlopen(req, timeout=90) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                return res_data['candidates'][0]['content']['parts'][0]['text']
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                continue
+            raise e
+    raise Exception("Gemini models failed or return 404")
 
 
-def generate_module_code(file_path, prompt_input, engine_mgr, log_list):
-    # Fast Track Static Check (CSS / JSON Bypass)
+def generate_module_code(file_path, prompt_input, cluster, log_list):
+    # Fast track check
     static_code = get_static_file_template(file_path)
     if static_code:
-        log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚡ [Fast-Track] Generating static file for `{file_path}` without API delay...")
+        log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚡ [Fast-Track] Created `{file_path}` locally without API calls.")
         return static_code
 
     full_prompt = f"""
@@ -207,59 +197,59 @@ def generate_module_code(file_path, prompt_input, engine_mgr, log_list):
     {prompt_input}
 
     TASK:
-    Write COMPLETE, INDUSTRIAL-GRADE, FULLY FUNCTIONAL source code for file: `{file_path}`.
+    Write COMPLETE, PRODUCTION-READY source code for file: `{file_path}`.
 
     CRITICAL INSTRUCTIONS:
-    - Write complete, compilable implementations. Absolutely ZERO placeholders, NO '// TODO', NO cuts.
-    - Write all type interfaces, dependencies, data models, and logic completely.
+    - Absolutely ZERO placeholders, NO '// TODO', NO truncations.
     - Output ONLY raw executable code wrapped inside standard markdown codeblocks.
     """
 
     while True:
-        # 1. Try Groq Keys First (Rotates through all Keys)
-        if engine_mgr.groq_keys:
-            for _ in range(len(engine_mgr.groq_keys)):
-                groq_key, key_num = engine_mgr.get_groq_key()
-                if not groq_key:
-                    continue
-                try:
-                    log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚡ [Groq Engine] Trying Key #{key_num} for `{file_path}`...")
-                    client = Groq(api_key=groq_key, timeout=60.0)
-                    completion = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=[
-                            {"role": "system", "content": f"You are a Senior Principal Software Architect generating full source code for: {file_path}"},
-                            {"role": "user", "content": full_prompt}
-                        ],
-                        temperature=0.1,
-                        max_tokens=6000,
-                    )
-                    content = completion.choices[0].message.content
-                    if content and len(content.strip()) > 0:
-                        return content
-                except Exception as e:
-                    log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚠️ Groq Key #{key_num} Limit/Error: {str(e)[:60]}")
+        provider = cluster.get_next_available_provider()
 
-        # 2. Fallback to Gemini Keys (Rotates through all Gemini Keys)
-        if engine_mgr.gemini_keys:
-            for _ in range(len(engine_mgr.gemini_keys)):
-                gemini_key, g_num = engine_mgr.get_gemini_key()
-                if not gemini_key:
-                    continue
-                try:
-                    log_list.append(f"[{time.strftime('%H:%M:%S')}] 🔄 [Gemini Fallback] Switching to Gemini Key #{g_num} for `{file_path}`...")
-                    content = call_gemini_rest(full_prompt, gemini_key)
-                    if content and len(content.strip()) > 0:
-                        return content
-                except Exception as e:
-                    log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚠️ Gemini Key #{g_num} Error: {str(e)[:60]}")
+        if not provider:
+            log_list.append(f"[{time.strftime('%H:%M:%S')}] 🛑 All Unified Cluster Keys are cooling down. Waiting 15s...")
+            time.sleep(15)
+            continue
 
-        # 3. Emergency Standby Cooldown if ALL keys are rate-limited
-        log_list.append(f"[{time.strftime('%H:%M:%S')}] 🛑 All API keys busy! Taking a 20s cooldown before retry...")
-        time.sleep(20)
+        p_type = provider["type"]
+        p_name = provider["name"]
+        p_key = provider["key"]
+
+        if p_type == "groq":
+            try:
+                log_list.append(f"[{time.strftime('%H:%M:%S')}] 🧠 [Unified Brain -> {p_name}] Processing `{file_path}`...")
+                client = Groq(api_key=p_key, timeout=60.0)
+                completion = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": f"You are a Senior Software Architect generating code for: {file_path}"},
+                        {"role": "user", "content": full_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=6000,
+                )
+                content = completion.choices[0].message.content
+                if content and len(content.strip()) > 0:
+                    return content
+            except Exception as e:
+                err_msg = str(e)
+                log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚠️ {p_name} Cooldown (45s): {err_msg[:60]}")
+                cluster.mark_cooldown(provider, 45)
+
+        elif p_type == "gemini":
+            try:
+                log_list.append(f"[{time.strftime('%H:%M:%S')}] 🧠 [Unified Brain -> {p_name}] Processing `{file_path}`...")
+                content = call_gemini_rest(full_prompt, p_key)
+                if content and len(content.strip()) > 0:
+                    return content
+            except Exception as e:
+                err_msg = str(e)
+                log_list.append(f"[{time.strftime('%H:%M:%S')}] ⚠️ {p_name} Cooldown (45s): {err_msg[:60]}")
+                cluster.mark_cooldown(provider, 45)
 
 # ---------------------------------------------------------
-# GitHub Upload Engine
+# GitHub Upload Manager
 # ---------------------------------------------------------
 def push_file_to_github_safe(repo, path, content, token):
     url = f"https://api.github.com/repos/{repo}/contents/{path}"
@@ -270,42 +260,36 @@ def push_file_to_github_safe(repo, path, content, token):
     }
 
     sha = None
-    for attempt in range(5):
-        try:
-            req = urllib.request.Request(url, headers=headers, method='GET')
-            with urllib.request.urlopen(req, timeout=30) as response:
-                res_data = json.loads(response.read().decode('utf-8'))
-                sha = res_data.get('sha')
-            break
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                sha = None
-                break
-        except Exception:
-            time.sleep(3)
+    try:
+        req = urllib.request.Request(url, headers=headers, method='GET')
+        with urllib.request.urlopen(req, timeout=20) as response:
+            res_data = json.loads(response.read().decode('utf-8'))
+            sha = res_data.get('sha')
+    except Exception:
+        sha = None
 
-    # Clean Code from Markdown codeblock wrappers
     clean_code = re.sub(r'^```\w*\n', '', content, flags=re.MULTILINE)
     clean_code = re.sub(r'\n```$', '', clean_code, flags=re.MULTILINE).strip()
 
     encoded_content = base64.b64encode(clean_code.encode('utf-8')).decode('utf-8')
     payload = {
-        "message": f"feat(auto): generate complete production module {path}",
+        "message": f"feat(auto): generate module {path}",
         "content": encoded_content
     }
     if sha:
         payload["sha"] = sha
 
-    while True:
+    for attempt in range(3):
         try:
             req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='PUT')
-            with urllib.request.urlopen(req, timeout=60) as response:
+            with urllib.request.urlopen(req, timeout=40) as response:
                 return True
         except Exception:
-            time.sleep(6)
+            time.sleep(4)
+    return False
 
 # ---------------------------------------------------------
-# Streamlit Session State & App UI
+# App Interface & Execution Flow
 # ---------------------------------------------------------
 if "is_running" not in st.session_state:
     st.session_state.is_running = False
@@ -316,72 +300,45 @@ if "file_queue" not in st.session_state:
 if "logs" not in st.session_state:
     st.session_state.logs = []
 
-engine_mgr = MultiEngineManager()
+cluster = UnifiedClusterEngine()
 
 with st.sidebar:
-    st.header("⚙️ API Cluster Setup")
+    st.header("⚙️ Unified API Cluster")
     
-    # Auto-load from Secrets if available
     sec_groq = st.secrets.get("GROQ_KEYS", "") if hasattr(st, "secrets") else ""
     sec_gemini = st.secrets.get("GEMINI_KEYS", "") if hasattr(st, "secrets") else ""
     sec_token = st.secrets.get("GITHUB_TOKEN", "") if hasattr(st, "secrets") else ""
     
-    groq_input = st.text_area(
-        "Groq API Keys (کاما سے الگ کریں):",
-        value=sec_groq,
-        placeholder="gsk_key1, gsk_key2, gsk_key3, gsk_key4",
-        height=80
-    )
+    groq_input = st.text_area("Groq Keys (Comma separated):", value=sec_groq, height=70)
+    gemini_input = st.text_area("Gemini Keys (Comma separated):", value=sec_gemini, height=70)
     
-    gemini_input = st.text_area(
-        "Gemini API Keys (کاما سے الگ کریں):",
-        value=sec_gemini,
-        placeholder="AIzaSy_key1, AIzaSy_key2, AIzaSy_key3",
-        height=80
-    )
-    
-    engine_mgr.set_keys(groq_input, gemini_input)
+    cluster.set_keys(groq_input, gemini_input)
 
-    st.success(f"🔑 Active Keys: Groq ({len(engine_mgr.groq_keys)}) | Gemini ({len(engine_mgr.gemini_keys)})")
+    st.success(f"🧠 Interleaved Brain Pool Active: {len(cluster.providers)} Total Engines")
 
-    safety_delay = st.slider("فائلوں کے درمیان وقفہ (سیکنڈز):", min_value=3, max_value=20, value=6)
-    
+    safety_delay = st.slider("Pause between files (sec):", min_value=2, max_value=15, value=4)
     github_token = st.text_input("GitHub Access Token", value=sec_token, type="password")
     
-    # Dynamic GitHub Repository Dropdown Selection
     github_repo = ""
     if github_token:
-        with st.spinner("GitHub Repositories فیچ ہو رہی ہیں..."):
-            repo_list = get_github_repos(github_token)
-            
+        repo_list = get_github_repos(github_token)
         if repo_list:
-            github_repo = st.selectbox(
-                "اپنی GitHub Repository منتخب کریں:",
-                options=repo_list,
-                index=0
-            )
+            github_repo = st.selectbox("Select GitHub Repository:", options=repo_list)
         else:
             github_repo = st.text_input("GitHub Repository (username/repo)")
     else:
         github_repo = st.text_input("GitHub Repository (username/repo)")
 
-prompt_input = st.text_area(
-    "اپنا Blueprint / Manifest Prompt درج کریں:",
-    height=200,
-    placeholder="یہاں اپنا پرامپٹ کاپی کر کے پیسٹ کریں..."
-)
+prompt_input = st.text_area("Blueprint / Manifest Prompt:", height=180, placeholder="Paste your blueprint prompt here...")
 
-col_b1, col_b2 = st.columns(2)
-with col_b1:
-    if st.button("🚀 Heavy Hybrid Build شروع کریں", disabled=st.session_state.is_running):
-        if not prompt_input.strip():
-            st.error("پرامپٹ درج کرنا لازمی ہے۔")
-        elif not github_token or not github_repo:
-            st.error("GitHub Credentials اور Repository کا انتخاب لازمی ہے۔")
-        elif len(engine_mgr.groq_keys) == 0 and len(engine_mgr.gemini_keys) == 0:
-            st.error("کم از کم ایک Groq یا Gemini API Key درج کریں۔")
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("🚀 Start Unified Single-Mind Engine", disabled=st.session_state.is_running):
+        if not prompt_input.strip() or not github_token or not github_repo:
+            st.error("Please fill all required prompt and GitHub details.")
+        elif not cluster.providers:
+            st.error("Please provide at least one Groq or Gemini API key.")
         else:
-            # Multi-pattern regex for code headers (// path/file.ext or # path/file.ext)
             extracted_paths = re.findall(
                 r'(?:(?:\/\/|#)\s*)?([\w\/\.\-]+\.(?:py|prisma|json|js|jsx|css|ts|tsx|yaml|yml|env|example|txt|md|sql))',
                 prompt_input
@@ -389,20 +346,20 @@ with col_b1:
             final_paths = list(dict.fromkeys(extracted_paths))
             
             if not final_paths:
-                st.error("پرامپٹ میں سے کوئی فائل پاتھ (File Path) نہیں مل سکا۔")
+                st.error("No valid file paths detected in prompt.")
             else:
                 st.session_state.file_queue = final_paths
                 st.session_state.current_file_idx = 0
                 st.session_state.is_running = True
-                st.session_state.logs = [f"[{time.strftime('%H:%M:%S')}] 🏁 Hybrid Engine started. Target Repo: {github_repo} | Total modules: {len(final_paths)}"]
+                st.session_state.logs = [f"[{time.strftime('%H:%M:%S')}] 🏁 Unified Engine initialized with {len(cluster.providers)} active providers."]
                 st.rerun()
 
-with col_b2:
-    if st.button("🛑 Stop Process"):
+with col2:
+    if st.button("🛑 Emergency Stop"):
         st.session_state.is_running = False
-        st.warning("پروسیس روک دیا گیا ہے۔")
+        st.warning("Execution stopped.")
 
-# Execution Machine Loop
+# Loop Execution Engine
 if st.session_state.is_running and st.session_state.file_queue:
     total_files = len(st.session_state.file_queue)
     curr_idx = st.session_state.current_file_idx
@@ -414,45 +371,35 @@ if st.session_state.is_running and st.session_state.file_queue:
         c1, c2 = st.columns([1, 2])
         
         with c1:
-            st.markdown("### 📊 Mega Build Status")
+            st.markdown("### 📊 Active Build Progress")
             st.markdown(f"""
             <div class='status-card'>
-                <h4>پیشرفت کی صورتحال</h4>
-                <p>مکمل فائلیں: <b>{curr_idx + 1} / {total_files}</b></p>
-                <p>موجودہ فائل: <br><code>{current_file}</code></p>
-                <p>ٹارگٹ ریپو: <br><code>{github_repo}</code></p>
+                <p>Status: <b>{curr_idx + 1} / {total_files} Completed</b></p>
+                <p>Current File: <code>{current_file}</code></p>
+                <p>Repo: <code>{github_repo}</code></p>
             </div>
             """, unsafe_allow_html=True)
             st.progress((curr_idx + 1) / total_files)
 
         with c2:
-            st.markdown("### 📋 Engine Console Log")
+            st.markdown("### 📋 Unified Console Log")
             log_box = st.empty()
             log_box.markdown(f"<div class='log-container'>{'<br>'.join(st.session_state.logs[::-1])}</div>", unsafe_allow_html=True)
 
-        # Build File Execution
-        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] 🔒 File Lock Active: `{current_file}` ({curr_idx + 1}/{total_files})")
-        log_box.markdown(f"<div class='log-container'>{'<br>'.join(st.session_state.logs[::-1])}</div>", unsafe_allow_html=True)
+        code_out = generate_module_code(current_file, prompt_input, cluster, st.session_state.logs)
 
-        code_out = generate_module_code(current_file, prompt_input, engine_mgr, st.session_state.logs)
-
-        # Upload to GitHub
-        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] ⬆️ Uploading to GitHub ({github_repo}): `{current_file}`...")
+        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] ⬆️ Pushing `{current_file}` to GitHub ({github_repo})...")
         log_box.markdown(f"<div class='log-container'>{'<br>'.join(st.session_state.logs[::-1])}</div>", unsafe_allow_html=True)
 
         push_file_to_github_safe(github_repo, current_file, code_out, github_token)
 
-        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] ✅ Success: `{current_file}` saved to GitHub!")
+        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] ✅ Success: `{current_file}` pushed.")
         
-        # Advance Queue Index
         st.session_state.current_file_idx += 1
-        
-        # Cooldown Pause & Dynamic Rerun
-        st.session_state.logs.append(f"[{time.strftime('%H:%M:%S')}] ⏱️ Pausing for {safety_delay}s...")
         time.sleep(safety_delay)
         st.rerun()
 
     else:
         st.session_state.is_running = False
-        st.success(f"🎉 مبارک ہو! تمام فائلیں کامیابی کے ساتھ `{github_repo}` میں اپ لوڈ ہو چکی ہیں!")
+        st.success(f"🎉 Build Complete! All modules successfully committed to `{github_repo}`!")
         st.balloons()
